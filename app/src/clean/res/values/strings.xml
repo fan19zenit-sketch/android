@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clean_setup_title">Фото в чистоту</string>
+    <string name="clean_city_label">Ваш город</string>
+    <string name="clean_setup_hint">Если город уже есть в системе, приложение само подтянет нужный чат.</string>
+    <string name="clean_save_button">Подключить город</string>
+    <string name="clean_main_title">Фото в чистоту</string>
+    <string name="clean_main_subtitle">Снимок сразу уйдет в рабочий чат города.</string>
+    <string name="clean_status_label">СОСТОЯНИЕ</string>
+    <string name="clean_capture_button">Сфотографировать</string>
+    <string name="clean_settings_button">История</string>
+
+    <string name="history_title">Последние отправки</string>
+    <string name="history_subtitle">Здесь видно последние фото, время и реальный этап отправки.</string>
+    <string name="history_empty">Пока нет ни одного фото.</string>
+    <string name="history_change_city">Сменить город</string>
+    <string name="history_back">Назад к камере</string>
+    <string name="history_delete_chat">Удалить из чата</string>
+    <string name="history_item_time">Фото от %1$s</string>
+    <string name="history_sent_at">Отправлено: %1$s</string>
+    <string name="history_waiting">Ожидает отправки</string>
+    <string name="history_deleted_from_chat">Удалено из чата</string>
+    <string name="history_status_queued">В очереди</string>
+    <string name="history_status_sending">Отправляется</string>
+    <string name="history_status_server">На сервере</string>
+    <string name="history_status_chat">Уходит в чат</string>
+    <string name="history_status_retrying">Будет повтор</string>
+    <string name="history_status_sent">Ушло в чат</string>
+    <string name="history_status_deleted">Удалено</string>
+    <string name="history_status_error">Ошибка</string>
+    <string name="history_delete_done">Фото удалено из чата</string>
+    <string name="history_delete_failed">Не удалось удалить фото из чата</string>
+</resources>

@@ -1,0 +1,202 @@
+[
+  {
+    "city_name": "Бабаево",
+    "city_slug": "бабаево",
+    "transport_type": "max",
+    "max_chat_id": "-72316043708951",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T08:30:11.695241+00:00"
+  },
+  {
+    "city_name": "Белозерск",
+    "city_slug": "белозерск",
+    "transport_type": "max",
+    "max_chat_id": "-72316677573143",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T15:29:06.433419+00:00"
+  },
+  {
+    "city_name": "Верховажье",
+    "city_slug": "верховажье",
+    "transport_type": "max",
+    "max_chat_id": "-72319115119127",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T09:13:49.930873+00:00"
+  },
+  {
+    "city_name": "Вожега",
+    "city_slug": "вожега",
+    "transport_type": "max",
+    "max_chat_id": "-72318032726551",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T09:56:13.946228+00:00"
+  },
+  {
+    "city_name": "Вохтога",
+    "city_slug": "вохтога",
+    "transport_type": "max",
+    "max_chat_id": "-72317471738391",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T08:55:10.016194+00:00"
+  },
+  {
+    "city_name": "Вытегра",
+    "city_slug": "вытегра",
+    "transport_type": "max",
+    "max_chat_id": "-72316903934487",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T08:58:55.850547+00:00"
+  },
+  {
+    "city_name": "Диагностика",
+    "city_slug": "диагностика",
+    "transport_type": "max",
+    "max_chat_id": "-72316547549719",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-06T13:57:15.496361+00:00",
+    "updated_at": "2026-04-06T13:57:15.496361+00:00"
+  },
+  {
+    "city_name": "Кадуй",
+    "city_slug": "кадуй",
+    "transport_type": "max",
+    "max_chat_id": "-72316335933975",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-02T08:40:52.439313+00:00",
+    "updated_at": "2026-04-09T13:53:46.286878+00:00"
+  },
+  {
+    "city_name": "Кириллов",
+    "city_slug": "кириллов",
+    "transport_type": "max",
+    "max_chat_id": "-72316217707031",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T08:40:08.743993+00:00"
+  },
+  {
+    "city_name": "Любим",
+    "city_slug": "любим",
+    "transport_type": "max",
+    "max_chat_id": "-72319242717719",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-07T15:58:40.596911+00:00"
+  },
+  {
+    "city_name": "Никольск",
+    "city_slug": "никольск",
+    "transport_type": "max",
+    "max_chat_id": "-72319172463127",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-10T09:57:10.802602+00:00"
+  },
+  {
+    "city_name": "Нюксеница",
+    "city_slug": "нюксеница",
+    "transport_type": "max",
+    "max_chat_id": "-72319020681751",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T09:58:39.911320+00:00"
+  },
+  {
+    "city_name": "Пошехонье",
+    "city_slug": "пошехонье",
+    "transport_type": "max",
+    "max_chat_id": "-72316793506327",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T10:21:25.897647+00:00"
+  },
+  {
+    "city_name": "Сямжа",
+    "city_slug": "сямжа",
+    "transport_type": "max",
+    "max_chat_id": "-72318150101527",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T12:36:45.161472+00:00"
+  },
+  {
+    "city_name": "Устье",
+    "city_slug": "устье",
+    "transport_type": "max",
+    "max_chat_id": "-72318252599831",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T09:07:11.261820+00:00"
+  },
+  {
+    "city_name": "Федотово",
+    "city_slug": "федотово",
+    "transport_type": "max",
+    "max_chat_id": "-72317321792023",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T16:10:07.564510+00:00"
+  },
+  {
+    "city_name": "Харовск",
+    "city_slug": "харовск",
+    "transport_type": "max",
+    "max_chat_id": "-72317418195479",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T09:19:47.808397+00:00"
+  },
+  {
+    "city_name": "Чагода",
+    "city_slug": "чагода",
+    "transport_type": "max",
+    "max_chat_id": "-72316591917591",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-07T15:58:40.596911+00:00",
+    "updated_at": "2026-04-08T09:12:39.674705+00:00"
+  },
+  {
+    "city_name": "Череповец",
+    "city_slug": "череповец",
+    "transport_type": "max",
+    "max_chat_id": "-72316089649687",
+    "telegram_chat_id": null,
+    "telegram_thread_id": null,
+    "created_at": "2026-04-01T10:05:37.478152+00:00",
+    "updated_at": "2026-04-08T15:40:34.711653+00:00"
+  },
+  {
+    "city_name": "Шексна",
+    "city_slug": "шексна",
+    "transport_type": "max",
+    "max_chat_id": "-72316547549719",
+    "telegram_chat_id": "-1003374454724",
+    "telegram_thread_id": "6",
+    "created_at": "2026-03-31T16:19:01.918936+00:00",
+    "updated_at": "2026-04-08T16:22:28.951323+00:00"
+  }
+]

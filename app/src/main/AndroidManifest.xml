@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".App"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="${appLabel}"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SimplePhotoUploader"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".SetupActivity"
+            android:exported="true"
+            android:windowSoftInputMode="stateVisible|adjustResize"
+            android:theme="@style/Theme.SimplePhotoUploader.NoActionBar" />
+
+        <service
+            android:name=".PhotoUploadForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <activity
+            android:name=".HistoryActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SimplePhotoUploader.NoActionBar" />
+
+        <activity
+            android:name=".PhotoViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SimplePhotoUploader.NoActionBar" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.SimplePhotoUploader.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

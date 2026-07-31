@@ -1,0 +1,41 @@
+# Android / Gradle
+.gradle/
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local machine configuration
+local.properties
+*.iml
+.idea/
+
+# Gradle wrapper downloads or accidentally extracted distributions
+gradle/wrapper/gradle-*.zip
+gradle/wrapper/gradle-*/
+
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pem
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Deployment bundles generated from source
+*.zip

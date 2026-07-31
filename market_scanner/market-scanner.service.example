@@ -1,0 +1,16 @@
+[Unit]
+Description=Crypto Market Scanner Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/market-scanner
+Environment=TELEGRAM_BOT_TOKEN=replace_me
+Environment=TELEGRAM_CHAT_ID=-100xxxxxxxxxx
+ExecStart=/opt/market-scanner/.venv/bin/python market_scanner/scanner_runner.py --preset 5m_scalp --send-telegram --sleep-seconds 300 --limit-symbols 30 --max-results 5
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

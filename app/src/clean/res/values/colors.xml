@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="clean_pink">#EA67AA</color>
+    <color name="clean_pink_dark">#D44F96</color>
+    <color name="clean_black">#111111</color>
+    <color name="clean_black_soft">#1C1C1C</color>
+    <color name="clean_surface">#111111</color>
+    <color name="clean_surface_card">#181818</color>
+    <color name="clean_text_primary">#FFFFFF</color>
+    <color name="clean_text_secondary">#FFD2E7</color>
+    <color name="clean_status_bg">#AA111111</color>
+    <color name="clean_icon_bg">#EA67AA</color>
+    <color name="clean_icon_fg">#FFFFFF</color>
+    <color name="clean_white_70">#B3FFFFFF</color>
+</resources>

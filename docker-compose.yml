@@ -1,0 +1,18 @@
+services:
+  photo-backend:
+    build:
+      context: ./backend
+    container_name: photo-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env.local
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

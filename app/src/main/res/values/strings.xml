@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Фото в чат</string>
+    <string name="status_format">Статус: %1$s</string>
+    <string name="status_placeholder">Статус: ...</string>
+    <string name="status_ready">Готово</string>
+    <string name="status_ready_next">Готово к следующему фото</string>
+    <string name="status_queued">В очереди</string>
+    <string name="status_sending">Отправка</string>
+    <string name="status_server_received">На сервере</string>
+    <string name="status_uploaded">Отправлено</string>
+    <string name="status_retrying">Ожидает сеть и повтор</string>
+    <string name="status_error">Ошибка</string>
+    <string name="status_background_retry">Предыдущие фото ждут сеть</string>
+    <string name="status_background_error">Есть неотправленные фото</string>
+    <string name="status_stale_cleared">Удалено старых фото: %1$d</string>
+
+    <string name="notification_channel_name">Отправка фото</string>
+    <string name="notification_title">Фото в чистоту</string>
+    <string name="notification_uploading">Отправляется: %1$s</string>
+    <string name="notification_server_received">Фото принято сервером</string>
+    <string name="notification_uploaded">Фото отправлено</string>
+    <string name="notification_retrying">Сеть нестабильна, будет повтор</string>
+    <string name="notification_error">Не удалось отправить фото</string>
+
+    <string name="capture_button">Снять фото (громкость +/-)</string>
+    <string name="settings_button">Настройки</string>
+    <string name="save_button">Сохранить</string>
+    <string name="enter_city_error">Введите город</string>
+    <string name="registration_failed">Не удалось сохранить настройки</string>
+
+    <string name="permission_required_title">Нужен доступ к камере</string>
+    <string name="permission_required_message">Без разрешения на камеру приложение не сможет делать фото. Откройте настройки приложения и включите доступ.</string>
+    <string name="open_settings">Открыть настройки</string>
+    <string name="close">Закрыть</string>
+
+    <string name="setup_instructions">Введите город и канал отправки. Сервер уже зашит в приложение, поэтому адрес вводить не нужно.</string>
+    <string name="setup_instructions_clean">Введите только город. Чат и канал приложение возьмет с сервера автоматически. Если города нет в системе, его нужно сначала добавить на сервере.</string>
+    <string name="city_hint">Город</string>
+    <string name="transport_type_label">Куда отправлять фото</string>
+    <string name="transport_max">MAX</string>
+    <string name="transport_telegram">Telegram</string>
+    <string name="max_chat_id_label">ID чата MAX</string>
+    <string name="max_chat_id_hint">Например: -72316547549719</string>
+    <string name="telegram_chat_id_label">ID группы Telegram</string>
+    <string name="telegram_chat_id_hint">Например: -1001234567890</string>
+    <string name="telegram_thread_id_label">ID подтемы Telegram</string>
+    <string name="telegram_thread_id_hint">Например: 42</string>
+
+    <string name="history_title">Последние отправки</string>
+    <string name="history_subtitle">Здесь видны последние фото, время и результат отправки.</string>
+    <string name="history_empty">Пока нет ни одного фото.</string>
+    <string name="history_change_city">Сменить город</string>
+    <string name="history_back">Назад к камере</string>
+    <string name="history_delete_chat">Удалить из чата</string>
+    <string name="history_item_time">Фото от %1$s</string>
+    <string name="history_sent_at">Отправлено: %1$s</string>
+    <string name="history_waiting">Ожидает отправки</string>
+    <string name="history_status_queued">В очереди</string>
+    <string name="history_status_sending">Отправляется</string>
+    <string name="history_status_server">На сервере</string>
+    <string name="history_status_chat">Уходит в чат</string>
+    <string name="history_status_retrying">Будет повтор</string>
+    <string name="history_status_sent">Ушло в чат</string>
+    <string name="history_status_error">Ошибка</string>
+    <string name="history_delete_done">Фото удалено из чата</string>
+    <string name="history_delete_failed">Не удалось удалить фото из чата</string>
+    <string name="history_deleted_from_chat">Удалено из чата</string>
+    <string name="history_status_deleted">Удалено</string>
+</resources>
