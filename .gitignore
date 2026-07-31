@@ -19,6 +19,7 @@ gradle/wrapper/gradle-*/
 .env
 .env.*
 !.env.example
+backend/data/
 *.keystore
 *.jks
 *.p12
