@@ -2638,11 +2638,9 @@ def handle_photo_review_callback(payload: dict[str, Any]) -> bool:
         if review.get("status") not in {REVIEW_STATUS_ACCEPTED, REVIEW_STATUS_REJECTED}:
             answer_max_callback(callback_id, "Сначала завершите текущую оценку")
             return True
-        delete_review_reason_reply_if_present(
-            review,
-            photo_message_id=photo_message_id,
-            reason="review_change_cleanup",
-        )
+        # MAX can take seconds to delete an old reply. Confirm the action first
+        # so the reviewer immediately sees the new rating buttons.
+        answer_max_callback(callback_id, "Выберите новую оценку")
         update_photo_review_message(
             current_message_id,
             text="",
@@ -2672,7 +2670,16 @@ def handle_photo_review_callback(payload: dict[str, Any]) -> bool:
         )
         schedule_ml_dataset_google_sheets_sync()
         clear_pending_review_reason(user_id)
-        answer_max_callback(callback_id, "Выберите новую оценку")
+        threading.Thread(
+            target=delete_review_reason_reply_if_present,
+            kwargs={
+                "review": review,
+                "photo_message_id": photo_message_id,
+                "reason": "review_change_cleanup",
+            },
+            name="review-change-reason-cleanup",
+            daemon=True,
+        ).start()
         return True
 
     if action == "change_reason":
