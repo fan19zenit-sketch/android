@@ -7,14 +7,26 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Test and build preview
-        run: bash gradlew :app:testCleanDebugUnitTest :app:lintCleanDebug :app:assembleCleanPreview --no-daemon
+        run: bash gradlew :app:testCleanDebugUnitTest :app:lintCleanDebug :app:assembleCleanPreview :app:assembleCleanRelease --no-daemon
+      - name: Verify 16 KB native compatibility
+        run: python3 tools/check_apk_alignment.py app/build/outputs/apk/clean/release/app-clean-release-unsigned.apk
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test isolated support service
+        run: |
+          python3 -m pip install -r mobile_support/requirements-test.txt
+          python3 -m unittest mobile_support.test_core mobile_support.test_http -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -22,3 +34,37 @@ jobs:
           path: |
             app/build/reports/
             app/build/outputs/apk/clean/preview/
+  device-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 34
+            target: default
+          - api: 35
+            target: google_apis_ps16k
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Enable emulator acceleration on the disposable runner
+        run: sudo chmod a+rw /dev/kvm
+      - uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim -camera-back emulated -camera-front emulated
+          script: bash gradlew :app:connectedCleanDebugAndroidTest --no-daemon --max-workers=2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-tests-api-${{ matrix.api }}
+          path: app/build/reports/androidTests/

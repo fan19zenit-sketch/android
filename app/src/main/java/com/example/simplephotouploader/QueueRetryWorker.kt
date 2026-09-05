@@ -23,7 +23,7 @@ class QueueRetryWorker(context: Context, params: WorkerParameters) : Worker(cont
                 ExistingWorkPolicy.REPLACE,
                 OneTimeWorkRequestBuilder<QueueRetryWorker>()
                     .setInputData(workDataOf("sync" to sync))
-                    .setInitialDelay(30, TimeUnit.SECONDS)
+                    .setInitialDelay(RemoteSupport.settings(context).retrySeconds, TimeUnit.SECONDS)
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                     .build()
             )

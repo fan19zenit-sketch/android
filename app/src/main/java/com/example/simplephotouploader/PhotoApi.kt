@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 
 object PhotoApi {
     val client: OkHttpClient = OkHttpClient.Builder()
+        .followSslRedirects(false)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(90, TimeUnit.SECONDS)

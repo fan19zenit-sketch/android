@@ -1,0 +1,19 @@
+[Unit]
+Description=Back up photo mobile support state and credentials locally
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/photo-mobile-support
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SUPPORT_DB=/var/lib/photo-mobile-support/support.sqlite3
+Environment=SUPPORT_REGISTRY=/root/photo_chat_backend/data/devices.json
+Environment=SUPPORT_SECRET_FILE=/var/lib/photo-mobile-support/secret
+ExecStart=/opt/photo-mobile-support/venv/bin/python -m mobile_support.backup
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/photo-mobile-support
+MemoryMax=128M
+CPUQuota=20%

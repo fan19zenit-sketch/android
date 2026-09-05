@@ -1,0 +1,25 @@
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="#F8F5F1" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="24dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/support_title" android:textSize="30sp" android:textColor="#202529" android:fontFamily="sans-serif-medium" />
+        <TextView android:id="@+id/supportDevice" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="20dp" android:textSize="16sp" android:textColor="#202529" />
+        <TextView android:id="@+id/supportQueue" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="20dp" android:padding="16dp" android:background="#FFFFFF" android:textSize="16sp" android:textColor="#202529" />
+        <TextView android:id="@+id/supportStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="20dp" android:textSize="14sp" android:textColor="#636C70" />
+        <TextView android:id="@+id/supportSettings" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:textSize="14sp" android:textColor="#636C70" />
+        <Button android:id="@+id/supportCheck" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="56dp" android:layout_marginTop="24dp" android:text="@string/support_check" android:textAllCaps="false" />
+        <Button android:id="@+id/supportUpdate" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="56dp" android:layout_marginTop="8dp" android:text="@string/support_no_update" android:textAllCaps="false" android:enabled="false" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="20dp" android:text="@string/support_privacy" android:textSize="13sp" android:textColor="#636C70" />
+        <Button android:id="@+id/supportBack" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:layout_marginTop="20dp" android:text="@string/close" android:textAllCaps="false" />
+    </LinearLayout>
+</ScrollView>

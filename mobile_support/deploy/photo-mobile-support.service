@@ -1,0 +1,33 @@
+[Unit]
+Description=Photo Android support control plane
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/photo-mobile-support
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SUPPORT_DB=/var/lib/photo-mobile-support/support.sqlite3
+Environment=SUPPORT_REGISTRY=/root/photo_chat_backend/data/devices.json
+Environment=SUPPORT_SECRET_FILE=/var/lib/photo-mobile-support/secret
+ExecStart=/opt/photo-mobile-support/venv/bin/uvicorn mobile_support.server:create_app --factory --host 127.0.0.1 --port 8050 --workers 1 --limit-concurrency 32 --timeout-keep-alive 5 --no-access-log
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/photo-mobile-support
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=128M
+CPUQuota=25%
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

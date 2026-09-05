@@ -54,7 +54,9 @@ class ScreenSmokeTest {
             screenshot("history.png")
         }
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.CAMERA)
-        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        }
         val beforeCapture = dao.count()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onView(withId(R.id.captureButton)).check(matches(isDisplayed()))

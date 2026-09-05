@@ -24,13 +24,14 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : AppCompatActivity() {
-    companion object { private val capturing = AtomicBoolean(false) }
+    companion object { private val captures = CaptureGate() }
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
     private lateinit var captureButton: View
     private lateinit var settingsButton: View
     private var imageCapture: ImageCapture? = null
     private var cameraError = false
+    private var cameraStarting = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var refreshJob: Job? = null
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -69,6 +70,9 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (isFinishing) return
+        if (imageCapture == null && !cameraStarting &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera()
+        RemoteSupport.schedule(this)
         refreshJob = scope.launch {
             while (isActive) {
                 val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@MainActivity) }
@@ -77,14 +81,15 @@ class MainActivity : AppCompatActivity() {
                 val issues = items.count { it.status in setOf("error", "needs_review") }
                 statusText.text = when {
                     cameraError -> getString(R.string.camera_unavailable)
-                    capturing.get() -> getString(R.string.camera_capturing)
+                    captures.busy -> getString(R.string.camera_capturing)
                     filesDir.usableSpace < 200L * 1024 * 1024 -> getString(R.string.camera_low_storage)
+                    RemoteSupport.settings(this@MainActivity).uploadsPaused -> getString(R.string.support_paused)
                     issues > 0 -> getString(R.string.camera_issues, issues)
                     queued > 0 -> getString(R.string.camera_queued, queued)
                     server > 0 -> getString(R.string.camera_server, server)
                     else -> getString(R.string.camera_ready)
                 }
-                captureButton.isEnabled = imageCapture != null && !capturing.get()
+                captureButton.isEnabled = imageCapture != null && !captures.busy
                 val thumb = items.firstOrNull()?.thumbnailPath
                 (settingsButton as? ImageView)?.let { image ->
                     if (image.tag != thumb) {
@@ -110,15 +115,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (event?.repeatCount == 0) takePhoto()
+            if (event?.repeatCount == 0 && RemoteSupport.settings(this).volumeCapture) takePhoto()
             return true
         }
         return super.onKeyDown(keyCode, event)
     }
 
     private fun startCamera() {
+        if (cameraStarting) return
+        cameraStarting = true
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
+            cameraStarting = false
             if (isDestroyed || isFinishing) return@addListener
             try {
                 val provider = future.get()
@@ -128,10 +136,11 @@ class MainActivity : AppCompatActivity() {
                 provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
                 imageCapture = capture
                 cameraError = false
-                captureButton.isEnabled = !capturing.get()
+                captureButton.isEnabled = !captures.busy
             } catch (error: Exception) {
                 Log.e("Camera", "Camera unavailable", error)
                 cameraError = true
+                RemoteSupport.event(this, "camera_unavailable")
                 statusText.setText(R.string.camera_unavailable)
             }
         }, ContextCompat.getMainExecutor(this))
@@ -144,45 +153,79 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton(R.string.close, null).show()
             return
         }
-        if (!capturing.compareAndSet(false, true)) return
+        val captureId = captures.begin() ?: return
+        val timedOut = AtomicBoolean(false)
         captureButton.isEnabled = false
         statusText.setText(R.string.camera_capturing)
         val folder = File(filesDir, "photos").apply { mkdirs() }
         val file = File(folder, "IMG_${UUID.randomUUID()}.jpg")
+        val watchdog = App.ioScope.launch {
+            delay(30_000)
+            withContext(Dispatchers.Main) {
+                if (captures.finish(captureId)) {
+                    timedOut.set(true)
+                    RemoteSupport.event(applicationContext, "camera_timeout")
+                    if (!isDestroyed && !isFinishing) {
+                        imageCapture = null
+                        captureButton.isEnabled = false
+                        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) startCamera()
+                        AlertDialog.Builder(this@MainActivity).setMessage(R.string.camera_capture_timeout)
+                            .setPositiveButton(R.string.close, null).show()
+                    }
+                }
+            }
+        }
         try {
             camera.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(),
                 ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
                     override fun onError(error: ImageCaptureException) {
-                        capturing.set(false)
-                        captureButton.isEnabled = true
-                        statusText.setText(R.string.status_error)
+                        watchdog.cancel()
+                        if (!timedOut.get()) RemoteSupport.event(applicationContext, "camera_capture_error")
+                        if (captures.finish(captureId) && !isDestroyed) {
+                            captureButton.isEnabled = imageCapture != null
+                            statusText.setText(R.string.status_error)
+                        }
                     }
                     override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        watchdog.cancel()
                         // Application scope survives screen rotation while persisting the capture.
                         App.ioScope.launch {
                             try {
-                                PhotoHistoryStore.addQueued(applicationContext, file.absolutePath)
-                                PhotoUploadWorker.enqueue(applicationContext)
+                                if (timedOut.get()) {
+                                    val database = PilotDatabase.get(applicationContext)
+                                    database.runInTransaction {
+                                        PhotoHistoryStore.addQueued(applicationContext, file.absolutePath)
+                                        database.photoRecordDao().getByPhotoPath(file.absolutePath)?.let {
+                                            database.photoRecordDao().update(it.copy(status = "needs_review",
+                                                queuedInUploadQueue = false, error = getString(R.string.camera_late_capture)))
+                                        }
+                                    }
+                                } else {
+                                    PhotoHistoryStore.addQueued(applicationContext, file.absolutePath)
+                                    PhotoUploadWorker.enqueue(applicationContext)
+                                }
                                 withContext(Dispatchers.Main) {
                                     if (!isDestroyed) statusText.setText(R.string.camera_saved)
                                 }
                             } catch (error: Exception) {
+                                RemoteSupport.event(applicationContext, "queue_save_error")
                                 Log.e("Camera", "Could not queue saved photo", error)
                                 withContext(Dispatchers.Main) {
                                     if (!isDestroyed) statusText.setText(R.string.camera_save_error)
                                 }
                             } finally {
-                                capturing.set(false)
+                                captures.finish(captureId)
                                 withContext(Dispatchers.Main) {
-                                    if (!isDestroyed) captureButton.isEnabled = true
+                                    if (!isDestroyed) captureButton.isEnabled = imageCapture != null && !captures.busy
                                 }
                             }
                         }
                     }
                 })
         } catch (error: Exception) {
-            capturing.set(false)
-            captureButton.isEnabled = true
+            watchdog.cancel()
+            captures.finish(captureId)
+            captureButton.isEnabled = imageCapture != null && !captures.busy
             statusText.setText(R.string.status_error)
         }
     }

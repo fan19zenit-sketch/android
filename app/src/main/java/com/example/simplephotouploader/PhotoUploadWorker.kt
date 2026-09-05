@@ -52,9 +52,15 @@ class PhotoUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
         val deviceId = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
         if (backend.isBlank() || deviceId.isBlank()) return@withContext Result.failure()
         val dao = PilotDatabase.get(applicationContext).photoRecordDao()
+        if (RemoteSupport.settings(applicationContext).uploadsPaused) {
+            updateStatus(R.string.support_paused)
+            if (dao.queuedCount() > 0) QueueRetryWorker.schedule(applicationContext, false).result.get()
+            return@withContext Result.success()
+        }
         val startedAt = android.os.SystemClock.elapsedRealtime()
         for (queued in dao.getQueuedRecords()) {
             ensureActive()
+            if (RemoteSupport.settings(applicationContext).uploadsPaused) break
             if (android.os.SystemClock.elapsedRealtime() - startedAt > 180_000) break
             val item = dao.getByPhotoPath(queued.photoPath) ?: continue
             if (!UploadPolicy.mayUpload(item.jobId, item.status, item.chatDeleted)) {
@@ -87,16 +93,23 @@ class PhotoUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
                             if (jobId.isBlank() || jobId == "null") throw IOException("Missing server acknowledgement")
                             // Commit acknowledgement before cleanup or scheduling other work.
                             dao.acknowledgeUpload(item.photoPath, jobId)
+                            RemoteSupport.event(applicationContext, "upload_acknowledged")
                             updateStatus(R.string.status_server_received)
                             UploadStatusSyncWorker.enqueue(applicationContext)
                         } else if (UploadPolicy.retryableHttp(response.code)) {
+                            RemoteSupport.event(applicationContext, "upload_http_${response.code}")
                             throw IOException("HTTP ${response.code}")
                         } else {
+                            RemoteSupport.event(applicationContext, "upload_http_${response.code}")
                             PhotoHistoryStore.markError(applicationContext, item.photoPath,
                                 applicationContext.getString(R.string.history_http_error, response.code))
                         }
                     }
             } catch (error: IOException) {
+                if (!error.message.orEmpty().startsWith("HTTP ")) {
+                    RemoteSupport.event(applicationContext, if (error is java.net.SocketTimeoutException)
+                        "upload_timeout" else "upload_connection_error")
+                }
                 PhotoHistoryStore.markRetry(applicationContext, item.photoPath, error.message)
                 updateStatus(R.string.status_retrying)
             }

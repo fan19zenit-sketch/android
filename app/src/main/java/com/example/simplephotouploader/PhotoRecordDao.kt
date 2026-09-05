@@ -8,6 +8,18 @@ import androidx.room.Update
 
 @Dao
 interface PhotoRecordDao {
+    @Query("SELECT COUNT(*) FROM photo_records WHERE queuedInUploadQueue = 1")
+    fun queuedCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE jobId IS NOT NULL AND status IN ('uploaded_to_server', 'sending_to_chat')")
+    fun pendingCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE status IN ('error', 'needs_review')")
+    fun issueCount(): Int
+
+    @Query("SELECT MIN(capturedAt) FROM photo_records WHERE queuedInUploadQueue = 1")
+    fun oldestQueuedAt(): String?
+
     @Query("SELECT * FROM photo_records WHERE jobId IS NOT NULL AND status IN ('uploaded_to_server', 'sending_to_chat') ORDER BY capturedAt ASC")
     fun getPendingServerRecords(): List<PhotoRecordEntity>
 

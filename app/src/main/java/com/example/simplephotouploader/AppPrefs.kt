@@ -1,7 +1,8 @@
 package com.example.simplephotouploader
 
 object AppPrefs {
-    const val DEFAULT_BACKEND_URL = "http://194.55.235.241:8000"
+    const val LEGACY_BACKEND_URL = "http://194.55.235.241:8000"
+    const val DEFAULT_BACKEND_URL = "https://194-55-235-241.sslip.io/mobile-api"
     const val PREFS = "app_prefs"
     const val KEY_BACKEND_URL = "backend_url"
     const val KEY_QUEUE = "photo_queue"

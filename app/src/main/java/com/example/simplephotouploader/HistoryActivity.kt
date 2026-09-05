@@ -47,6 +47,9 @@ class HistoryActivity : AppCompatActivity() {
         renderHistory(recycler, emptyText)
 
         backButton.setOnClickListener { finish() }
+        findViewById<Button>(R.id.btnSupport).setOnClickListener {
+            startActivity(Intent(this, SupportActivity::class.java))
+        }
         changeCityButton.setOnClickListener {
             startActivity(Intent(this, SetupActivity::class.java).apply {
                 putExtra(SetupActivity.EXTRA_FORCE_EDIT, true)
