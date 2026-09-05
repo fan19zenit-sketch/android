@@ -87,9 +87,12 @@ support release table yet, so phones cannot be offered an unverified APK.
 
 ## Verification and release gate
 
-11 JVM tests passed. All 13 Android 15 / ARM64 / 16 KiB instrumented tests passed
-before the final TLS-redirect hardening. The final CI/device results should be
-checked for the exact release commit. Tests cover migration, queue recovery, more
+Release source commit: `6c8612338f6f219636a369070eb3360300cc7ea3`.
+Unsigned APK SHA-256: `eed4238a0e64d83d1236e3638baa121e30eba566a1cf1f660f98b7c8cf2a1177`.
+Uploaded size: 7,041,513 bytes. GitHub's uploaded-asset digest matches the local APK.
+
+Final local checks passed: 11 JVM tests and all 13 Android 15 / ARM64 / 16 KiB
+instrumented tests, including the final TLS-redirect hardening. Tests cover migration, queue recovery, more
 than ten pending jobs, shared server IDs, offline screens, camera capture, held
 volume key, watchdog recovery, remote-config expiry, and short/oversized/failed
 diagnostics responses. Android Lint reports no errors, but has non-blocking warnings.
@@ -99,8 +102,11 @@ camera driver crashed. Successful JPEG capture is NOT verified on this image:
 `camera.ranchu.so` crashes in `NV21JpegCompressor`, outside the app. The full initial
 suite recorded that failure; it was not silently relabeled as a pass.
 
-GitHub CI runs unit/lint/server tests, the native alignment checker, and full
-instrumented suites on API 34 and API 35 16 KiB x86_64 emulators. No CI test sends
+GitHub CI run [33964225714](https://github.com/fan19zenit-sketch/android/actions/runs/33964225714)
+passed all three jobs: build/unit/lint/server/alignment, API 34 device tests and
+API 35 16 KiB device tests. CI still emits non-blocking deprecation warnings for
+the pre-existing major versions of official GitHub Actions; their runtime is
+automatically upgraded by GitHub. No CI test sends
 photos to production. Physical Samsung/Tecno/Xiaomi behavior is still unverified.
 
 Release APK is unsigned on the Mac. The original Windows signing certificate is
