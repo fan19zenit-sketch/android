@@ -25,14 +25,14 @@ class SetupActivity : AppCompatActivity() {
         const val EXTRA_FORCE_EDIT = "force_edit"
     }
 
-    private val client = OkHttpClient.Builder().build()
+    private val client = PhotoApi.client
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_setup)
 
-        val isCleanApp = packageName == "com.example.photovchistotu"
+        val isCleanApp = BuildConfig.FLAVOR == "clean"
         val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
         val forceEdit = intent.getBooleanExtra(EXTRA_FORCE_EDIT, false)
         val backendUrl = AppPrefs.DEFAULT_BACKEND_URL
@@ -97,6 +97,10 @@ class SetupActivity : AppCompatActivity() {
         cityInput.requestFocus()
 
         button.setOnClickListener {
+            if (PhotoQueueStore.hasItems(this) || PilotDatabase.get(this).photoRecordDao().getPendingServerRecords().isNotEmpty()) {
+                cityInput.error = getString(R.string.setup_queue_pending)
+                return@setOnClickListener
+            }
             val city = cityInput.text.toString().trim()
             val transportType = if (isCleanApp) {
                 null

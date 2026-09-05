@@ -8,23 +8,26 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.DiffUtil
 import java.io.File
 
 class HistoryAdapter(
-    private val items: List<PhotoHistoryStore.Entry>,
     private val onDeleteFromChat: (PhotoHistoryStore.Entry) -> Unit,
     private val onOpenPhoto: (PhotoHistoryStore.Entry) -> Unit,
-) : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
+    private val onRetry: (PhotoHistoryStore.Entry) -> Unit,
+) : ListAdapter<PhotoHistoryStore.Entry, HistoryAdapter.ViewHolder>(object : DiffUtil.ItemCallback<PhotoHistoryStore.Entry>() {
+    override fun areItemsTheSame(a: PhotoHistoryStore.Entry, b: PhotoHistoryStore.Entry) = a.id == b.id
+    override fun areContentsTheSame(a: PhotoHistoryStore.Entry, b: PhotoHistoryStore.Entry) = a == b
+}) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_history_entry, parent, false)
         return ViewHolder(view)
     }
 
-    override fun getItemCount(): Int = items.size
-
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(items[position], onDeleteFromChat, onOpenPhoto)
+        holder.bind(getItem(position), onDeleteFromChat, onOpenPhoto, onRetry)
     }
 
     class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -33,11 +36,13 @@ class HistoryAdapter(
         private val subtitle = itemView.findViewById<TextView>(R.id.tvHistorySubtitle)
         private val status = itemView.findViewById<TextView>(R.id.tvHistoryStatus)
         private val deleteButton = itemView.findViewById<Button>(R.id.btnDeleteFromChat)
+        private val retryButton = itemView.findViewById<Button>(R.id.btnRetry)
 
         fun bind(
             item: PhotoHistoryStore.Entry,
             onDeleteFromChat: (PhotoHistoryStore.Entry) -> Unit,
             onOpenPhoto: (PhotoHistoryStore.Entry) -> Unit,
+            onRetry: (PhotoHistoryStore.Entry) -> Unit,
         ) {
             title.text = itemView.context.getString(
                 R.string.history_item_time,
@@ -72,6 +77,7 @@ class HistoryAdapter(
                 "sending_to_chat" -> itemView.context.getString(R.string.history_status_chat)
                 "retrying" -> itemView.context.getString(R.string.history_status_retrying)
                 "error" -> itemView.context.getString(R.string.history_status_error)
+                "needs_review" -> itemView.context.getString(R.string.history_needs_review)
                 else -> item.status
             }
 
@@ -91,6 +97,14 @@ class HistoryAdapter(
             deleteButton.setOnClickListener {
                 onDeleteFromChat(item)
             }
+            retryButton?.visibility = if (item.jobId.isNullOrBlank() && !item.chatDeleted &&
+                item.status in setOf("needs_review", "error", "retrying") && File(item.photoPath).exists()) View.VISIBLE else View.GONE
+            retryButton?.setOnClickListener { onRetry(item) }
+            status.setTextColor(android.graphics.Color.parseColor(when {
+                item.status == "sent" && !item.chatDeleted -> "#25745B"
+                item.status in setOf("error", "needs_review") -> "#B33C4A"
+                else -> "#765725"
+            }))
             itemView.setOnClickListener {
                 onOpenPhoto(item)
             }

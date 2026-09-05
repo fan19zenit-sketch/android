@@ -1,170 +1,112 @@
 package com.example.simplephotouploader
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
-import android.util.Log
-import androidx.work.BackoffPolicy
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import androidx.work.Constraints
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.work.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
-import java.time.ZoneId
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class PhotoUploadWorker(
-    appContext: Context,
-    workerParams: WorkerParameters
-) : CoroutineWorker(appContext, workerParams) {
-
+class PhotoUploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     companion object {
-        private const val TAG = "PhotoUploadWorker"
         private const val UNIQUE_WORK_NAME = "photo-upload-queue"
-
-        fun enqueue(context: Context) {
+        fun enqueue(context: Context): Operation {
             val request = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build()
-                )
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .build()
-
-            WorkManager.getInstance(context).enqueueUniqueWork(
-                UNIQUE_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
-                request
-            )
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST).build()
+            // Preserve a capture arriving while the previous worker finishes.
+            return WorkManager.getInstance(context).enqueueUniqueWork(
+                UNIQUE_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
     }
 
-    private val client = OkHttpClient.Builder().build()
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = "photo_upload_channel"
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(NotificationChannel(channel,
+                applicationContext.getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW))
+        }
+        return ForegroundInfo(1001, NotificationCompat.Builder(applicationContext, channel)
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setContentTitle(applicationContext.getString(R.string.notification_title))
+            .setContentText(applicationContext.getString(R.string.status_sending))
+            .setOngoing(true).build())
+    }
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val prefs = applicationContext.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
-        val currentQueue = PhotoQueueStore.loadQueue(prefs)
-        val cleanup = QueuedPhotoMaintenance.removeStaleEntries(
-            currentQueue,
-            ZoneId.systemDefault()
-        )
-        cleanup.removedPaths.forEach { removedPath ->
-            PhotoQueueStore.dequeue(applicationContext, removedPath)
-        }
-        val queue = PhotoQueueStore.loadQueue(prefs).toMutableList()
-        if (cleanup.removedCount > 0) {
-            updateStatus(applicationContext.getString(R.string.status_stale_cleared, cleanup.removedCount))
-        }
-        if (queue.isEmpty()) {
-            updateStatus(applicationContext.getString(R.string.status_ready))
-            return Result.success()
-        }
-
-        val backendUrl = prefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL)
-            ?.trimEnd('/')
-            .orEmpty()
-        val deviceUuid = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
-
-        if (backendUrl.isEmpty() || deviceUuid.isEmpty()) {
-            updateStatus(applicationContext.getString(R.string.status_error))
-            return Result.failure()
-        }
-
-        updateStatus(applicationContext.getString(R.string.status_sending))
-
-        for (entry in queue.toList()) {
-            val file = File(entry)
-            if (!file.exists()) {
-                PhotoHistoryStore.removeByPhotoPath(applicationContext, entry)
-                PhotoQueueStore.dequeue(applicationContext, entry)
+        val backend = prefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL).orEmpty().trimEnd('/')
+        val deviceId = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
+        if (backend.isBlank() || deviceId.isBlank()) return@withContext Result.failure()
+        val dao = PilotDatabase.get(applicationContext).photoRecordDao()
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        for (queued in dao.getQueuedRecords()) {
+            ensureActive()
+            if (android.os.SystemClock.elapsedRealtime() - startedAt > 180_000) break
+            val item = dao.getByPhotoPath(queued.photoPath) ?: continue
+            if (!UploadPolicy.mayUpload(item.jobId, item.status, item.chatDeleted)) {
+                dao.setQueuedState(item.photoPath, false)
                 continue
             }
-
-            PhotoHistoryStore.markSending(applicationContext, entry)
-            val clientUploadId = PhotoHistoryStore.getByPhotoPath(applicationContext, entry)?.id.orEmpty()
-            val body = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("deviceUuid", deviceUuid)
-                .addFormDataPart("clientUploadId", clientUploadId)
-                .addFormDataPart(
-                    "photo",
-                    file.name,
-                    file.asRequestBody("image/jpeg".toMediaTypeOrNull())
-                )
-                .build()
-
-            val request = Request.Builder()
-                .url("$backendUrl/upload-v2")
-                .post(body)
-                .build()
-
-            val outcome = try {
-                client.newCall(request).execute().use { response ->
-                    when {
-                        response.code == 202 -> {
-                            val responseBody = response.body?.string().orEmpty()
-                            val jobId = JSONObject(responseBody).optJSONObject("job")?.optString("job_id").orEmpty()
-                            if (jobId.isBlank()) {
-                                UploadOutcome.PermanentFailure(null)
-                            } else {
-                                UploadOutcome.Accepted(jobId)
-                            }
-                        }
-                        response.code >= 500 -> UploadOutcome.RetryableFailure
-                        else -> UploadOutcome.PermanentFailure(null)
-                    }
-                }
-            } catch (error: Exception) {
-                Log.e(TAG, "Upload failed for ${file.absolutePath}", error)
-                UploadOutcome.RetryableFailure
+            if (UploadPolicy.needsDateApproval(item.capturedAt, item.manualRetryApproved)) {
+                dao.update(item.copy(status = "needs_review", queuedInUploadQueue = false,
+                    error = applicationContext.getString(R.string.history_older_photo)))
+                continue
             }
-
-            when (outcome) {
-                is UploadOutcome.Accepted -> {
-                    file.delete()
-                    PhotoHistoryStore.markUploadedToServer(applicationContext, entry, outcome.jobId)
-                    PhotoQueueStore.dequeue(applicationContext, entry)
-                    updateStatus(applicationContext.getString(R.string.status_server_received))
-                    UploadStatusSyncWorker.enqueueBurst(applicationContext)
-                }
-                UploadOutcome.RetryableFailure -> {
-                    PhotoHistoryStore.markRetry(applicationContext, entry)
-                    updateStatus(applicationContext.getString(R.string.status_retrying))
-                    return Result.retry()
-                }
-                is UploadOutcome.PermanentFailure -> {
-                    PhotoHistoryStore.markError(applicationContext, entry, outcome.error)
-                    updateStatus(applicationContext.getString(R.string.status_error))
-                    return Result.failure()
-                }
+            val file = File(item.photoPath)
+            if (!file.exists()) {
+                PhotoHistoryStore.markError(applicationContext, item.photoPath,
+                    applicationContext.getString(R.string.history_file_missing))
+                continue
+            }
+            PhotoHistoryStore.markSending(applicationContext, item.photoPath)
+            updateStatus(R.string.status_sending)
+            val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart("deviceUuid", deviceId)
+                .addFormDataPart("clientUploadId", item.id)
+                .addFormDataPart("photo", file.name, file.asRequestBody("image/jpeg".toMediaType())).build()
+            try {
+                PhotoApi.client.newCall(Request.Builder().url("$backend/upload-v2").post(body).build())
+                    .execute().use { response ->
+                        if (response.code == 202) {
+                            val job = runCatching { JSONObject(response.body?.string().orEmpty()).optJSONObject("job") }.getOrNull()
+                            val jobId = job?.optString("job_id").orEmpty()
+                            if (jobId.isBlank() || jobId == "null") throw IOException("Missing server acknowledgement")
+                            // Commit acknowledgement before cleanup or scheduling other work.
+                            dao.acknowledgeUpload(item.photoPath, jobId)
+                            updateStatus(R.string.status_server_received)
+                            UploadStatusSyncWorker.enqueue(applicationContext)
+                        } else if (UploadPolicy.retryableHttp(response.code)) {
+                            throw IOException("HTTP ${response.code}")
+                        } else {
+                            PhotoHistoryStore.markError(applicationContext, item.photoPath,
+                                applicationContext.getString(R.string.history_http_error, response.code))
+                        }
+                    }
+            } catch (error: IOException) {
+                PhotoHistoryStore.markRetry(applicationContext, item.photoPath, error.message)
+                updateStatus(R.string.status_retrying)
             }
         }
-
-        updateStatus(applicationContext.getString(R.string.status_ready))
-        return Result.success()
+        if (dao.getQueuedPaths().isNotEmpty()) QueueRetryWorker.schedule(applicationContext, false).result.get()
+        Result.success()
     }
 
-    private fun updateStatus(text: String) {
-        applicationContext
-            .getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(AppPrefs.KEY_LAST_STATUS, text)
-            .apply()
-    }
-
-    private sealed class UploadOutcome {
-        data class Accepted(val jobId: String) : UploadOutcome()
-        object RetryableFailure : UploadOutcome()
-        data class PermanentFailure(val error: String?) : UploadOutcome()
+    private fun updateStatus(resource: Int) {
+        applicationContext.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
+            .putString(AppPrefs.KEY_LAST_STATUS, applicationContext.getString(resource)).apply()
     }
 }

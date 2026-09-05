@@ -1,76 +1,30 @@
-<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/clean_surface"
-    android:orientation="vertical"
-    android:paddingStart="20dp"
-    android:paddingTop="22dp"
-    android:paddingEnd="20dp"
-    android:paddingBottom="16dp">
-
-    <TextView
-        android:id="@+id/tvHistoryHeader"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fontFamily="sans-serif-black"
-        android:text="@string/history_title"
-        android:textColor="@color/clean_text_primary"
-        android:textSize="30sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/tvHistorySubheader"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:fontFamily="sans-serif-medium"
-        android:text="@string/history_subtitle"
-        android:textColor="@color/clean_text_secondary"
-        android:textSize="14sp" />
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerHistory"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="18dp"
-        android:layout_weight="1" />
-
-    <TextView
-        android:id="@+id/tvEmpty"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fontFamily="sans-serif-medium"
-        android:gravity="center"
-        android:paddingVertical="24dp"
-        android:text="@string/history_empty"
-        android:textColor="@color/clean_text_secondary"
-        android:textSize="15sp"
-        android:visibility="gone" />
-
-    <Button
-        android:id="@+id/btnChangeCity"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:background="@drawable/clean_button_secondary"
-        android:fontFamily="sans-serif-black"
-        android:minHeight="54dp"
-        android:text="@string/history_change_city"
-        android:textAllCaps="false"
-        android:textColor="@color/clean_text_primary"
-        android:textStyle="bold" />
-
-    <Button
-        android:id="@+id/btnBack"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:background="@drawable/clean_button_primary"
-        android:fontFamily="sans-serif-black"
-        android:minHeight="56dp"
-        android:text="@string/history_back"
-        android:textAllCaps="false"
-        android:textColor="@android:color/white"
-        android:textStyle="bold" />
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/clean_surface" android:orientation="vertical" android:padding="20dp">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="КОНТРОЛЬ ОТПРАВКИ" android:letterSpacing="0.12" android:textSize="11sp"
+        android:fontFamily="sans-serif-medium" android:textColor="@color/clean_pink" />
+    <TextView android:id="@+id/tvHistoryHeader" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Ваши снимки"
+        android:fontFamily="sans-serif-medium" android:textSize="32sp" android:textColor="@color/clean_text_primary" />
+    <TextView android:id="@+id/tvHistorySubheader" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="10dp" android:padding="14dp"
+        android:background="@drawable/clean_card_background" android:text="@string/history_subtitle"
+        android:textColor="@color/clean_text_secondary" android:textSize="13sp" />
+    <TextView android:id="@+id/tvEmpty" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:padding="30dp" android:gravity="center" android:text="@string/history_empty"
+        android:textColor="@color/clean_text_secondary" android:visibility="gone" />
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/recyclerHistory"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="16dp" android:clipToPadding="false" android:paddingBottom="12dp" />
+    <Button android:id="@+id/btnBack" android:layout_width="match_parent" android:layout_height="56dp"
+        android:text="@string/history_back" android:textAllCaps="false" android:textColor="#FFFFFF" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/versionText" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:textSize="12sp" android:textColor="@color/clean_text_secondary" />
+        <Button android:id="@+id/btnChangeCity" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="48dp" android:text="@string/history_change_city"
+            android:textAllCaps="false" android:textColor="@color/clean_text_primary" />
+    </LinearLayout>
 </LinearLayout>

@@ -1,75 +1,27 @@
-<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:layout_marginBottom="12dp"
-    android:background="@drawable/clean_card_background"
-    android:elevation="4dp"
-    android:orientation="horizontal"
-    android:padding="14dp">
-
-    <ImageView
-        android:id="@+id/ivThumb"
-        android:layout_width="74dp"
-        android:layout_height="74dp"
-        android:background="@drawable/clean_history_thumb_bg"
-        android:clipToOutline="true"
-        android:scaleType="centerCrop" />
-
-    <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="14dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
-
-        <TextView
-            android:id="@+id/tvHistoryTitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:fontFamily="sans-serif-black"
-            android:textColor="@color/clean_text_primary"
-            android:textSize="15sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvHistorySubtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:fontFamily="sans-serif-medium"
-            android:textColor="@color/clean_text_secondary"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/tvHistoryStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/clean_button_secondary"
-            android:fontFamily="sans-serif-black"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="6dp"
-            android:textColor="@color/clean_text_primary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <Button
-            android:id="@+id/btnDeleteFromChat"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/clean_button_secondary"
-            android:fontFamily="sans-serif-black"
-            android:minHeight="0dp"
-            android:minWidth="0dp"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="8dp"
-            android:text="@string/history_delete_chat"
-            android:textAllCaps="false"
-            android:textColor="@color/clean_text_primary"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp"
+    android:background="@drawable/clean_card_background" android:orientation="vertical" android:padding="14dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+        <ImageView android:id="@+id/ivThumb" android:layout_width="78dp" android:layout_height="96dp"
+            android:background="@drawable/clean_history_thumb_bg" android:clipToOutline="true" android:scaleType="centerCrop"
+            android:contentDescription="@string/camera_history_label" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:layout_marginStart="14dp" android:orientation="vertical">
+            <TextView android:id="@+id/tvHistoryTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium" android:textColor="@color/clean_text_primary" android:textSize="16sp" />
+            <TextView android:id="@+id/tvHistorySubtitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:textColor="@color/clean_text_secondary" android:textSize="13sp" />
+            <TextView android:id="@+id/tvHistoryStatus" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="10dp" android:background="@drawable/clean_button_secondary"
+                android:paddingHorizontal="10dp" android:paddingVertical="6dp"
+                android:fontFamily="sans-serif-medium" android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
+    <Button android:id="@+id/btnRetry" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:minHeight="48dp" android:layout_marginTop="8dp" android:text="@string/history_retry"
+        android:textAllCaps="false" android:visibility="gone" />
+    <Button android:id="@+id/btnDeleteFromChat" style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+        android:layout_marginTop="8dp" android:text="@string/history_delete_chat"
+        android:textAllCaps="false" android:visibility="gone" />
 </LinearLayout>

@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.simplephotouploader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 20260905
+        versionName = "3.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -33,6 +33,12 @@ android {
     }
 
     buildTypes {
+        create("preview") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".preview"
+            manifestPlaceholders["appLabel"] = "Фото в чистоту · Тест"
+            matchingFallbacks += "debug"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -40,15 +46,18 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
         jvmTarget = "17"
     }
+    buildFeatures { buildConfig = true }
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.10.0")
@@ -71,6 +80,8 @@ dependencies {
     kapt("androidx.room:room-compiler:2.6.1")
 
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.6")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.work:work-testing:2.9.1")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.11.0")
 }

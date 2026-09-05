@@ -1,0 +1,24 @@
+name: Android checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Test and build preview
+        run: bash gradlew :app:testCleanDebugUnitTest :app:lintCleanDebug :app:assembleCleanPreview --no-daemon
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-checks
+          path: |
+            app/build/reports/
+            app/build/outputs/apk/clean/preview/

@@ -49,6 +49,7 @@ class PhotoViewerActivity : AppCompatActivity() {
             "sending_to_chat" -> getString(R.string.history_status_chat)
             "retrying" -> getString(R.string.history_status_retrying)
             "error" -> getString(R.string.history_status_error)
+            "needs_review" -> getString(R.string.history_needs_review)
             else -> status
         }
     }

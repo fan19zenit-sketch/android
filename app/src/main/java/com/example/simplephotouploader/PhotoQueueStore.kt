@@ -18,6 +18,7 @@ object PhotoQueueStore {
     fun enqueue(context: Context, path: String): Boolean {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getByPhotoPath(path) ?: return false
+        if (!UploadPolicy.mayUpload(existing.jobId, existing.status, existing.chatDeleted)) return false
         if (existing.queuedInUploadQueue) {
             return false
         }

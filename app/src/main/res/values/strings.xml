@@ -1,5 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_version">Версия %1$s</string>
+    <string name="camera_city">%1$s · рабочий чат</string>
+    <string name="camera_ready">Можно фотографировать</string>
+    <string name="camera_capturing">Сохраняем снимок…</string>
+    <string name="camera_saved">Снимок сохранён. Можно снимать следующий</string>
+    <string name="camera_save_error">Снимок сохранён, но не добавлен в очередь. Откройте приложение снова</string>
+    <string name="camera_unavailable">Камера недоступна. Откройте приложение снова</string>
+    <string name="camera_queued">На телефоне ждут отправки: %1$d</string>
+    <string name="camera_server">Сервер отправляет в чат: %1$d</string>
+    <string name="camera_issues">Проверьте историю: %1$d фото требуют внимания</string>
+    <string name="history_needs_review">Требует решения</string>
+    <string name="history_older_photo">Фото за прошлый день сохранено. Подтвердите отправку в истории</string>
+    <string name="history_file_missing">Файл отсутствует на телефоне. Запись сохранена для проверки</string>
+    <string name="history_recovered">Восстановленный снимок. Проверьте фото перед отправкой</string>
+    <string name="history_server_unknown">Сервер больше не возвращает это задание. Уточните отправку у администратора</string>
+    <string name="history_http_error">Ответ сервера: %1$d. Фото сохранено на телефоне</string>
+    <string name="history_retry">Продолжить отправку</string>
+    <string name="history_retry_confirm">Отправить это сохранённое фото? Снимок за прошлый день появится в чате сейчас. Повтор использует прежний ID отправки.</string>
+    <string name="history_confirm_delete">Удалить это фото из рабочего чата?</string>
+    <string name="history_summary">В чате: %1$d   ·   В пути: %2$d   ·   Проверить: %3$d</string>
+    <string name="setup_queue_pending">Сначала завершите отправку фото текущего города</string>
+    <string name="camera_hint">Продукт и весы целиком в кадре</string>
+    <string name="camera_shutter_label">Снять фото</string>
+    <string name="camera_history_label">История</string>
     <string name="app_name">Фото в чат</string>
     <string name="status_format">Статус: %1$s</string>
     <string name="status_placeholder">Статус: ...</string>
@@ -67,4 +91,5 @@
     <string name="history_delete_failed">Не удалось удалить фото из чата</string>
     <string name="history_deleted_from_chat">Удалено из чата</string>
     <string name="history_status_deleted">Удалено</string>
+    <string name="camera_low_storage">Мало памяти на телефоне. Освободите место, не удаляя приложение и его данные.</string>
 </resources>
