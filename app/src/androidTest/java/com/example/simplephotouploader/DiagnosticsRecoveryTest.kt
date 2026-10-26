@@ -21,6 +21,19 @@ import java.util.concurrent.TimeUnit
 class DiagnosticsRecoveryTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
+    @Test fun startingDiagnosticsNeverWaitsForAnOngoingNetworkSync() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val holder = Thread {
+            synchronized(RemoteSupport) { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+        }.apply { start() }
+        assertTrue(entered.await(2, TimeUnit.SECONDS))
+        val task = java.util.concurrent.FutureTask { RemoteSupport.checkImmediately(context) }
+        Thread(task).start()
+        try { task.get(500, TimeUnit.MILLISECONDS) }
+        finally { release.countDown(); holder.join(2000) }
+    }
+
     @Test fun journalIsBoundedPrivateAndAcknowledgesOnlyKnownIds() {
         DiagnosticJournal.acknowledge(context, DiagnosticJournal.events(context).map { it.getString("id") }.toSet())
         repeat(245) { DiagnosticJournal.record(context, "upload", "response", "primary", "01234567", it.toLong()) }

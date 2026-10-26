@@ -29,12 +29,13 @@ object RemoteSupport {
         .readTimeout(15, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false)
         .eventListenerFactory { it.request().tag(ConnectionTrace::class.java) ?: okhttp3.EventListener.NONE }.build()
-    @Volatile private var lastImmediate = 0L
+    private val lastImmediate = java.util.concurrent.atomic.AtomicLong(0)
 
-    @Synchronized fun checkImmediately(context: Context) {
+    fun checkImmediately(context: Context) {
         val now = SystemClock.elapsedRealtime()
-        if (lastImmediate != 0L && now - lastImmediate < 60000) return
-        lastImmediate = now
+        val previous = lastImmediate.get()
+        if (previous != 0L && now - previous < 60000) return
+        if (!lastImmediate.compareAndSet(previous, now)) return
         App.ioScope.launch {
             runCatching { sync(context.applicationContext, force = true) }.onFailure {
                 prefs(context).edit().putString("sync_error", "support_unavailable").apply()
