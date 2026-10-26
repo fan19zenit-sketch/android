@@ -22,7 +22,6 @@ import org.json.JSONObject
 
 class HistoryActivity : AppCompatActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val client = PhotoApi.client
     private var lastItems: List<PhotoHistoryStore.Entry> = emptyList()
     private val deleting = mutableSetOf<String>()
     private var autoRefreshJob: Job? = null
@@ -106,7 +105,8 @@ class HistoryActivity : AppCompatActivity() {
             .setPositiveButton(R.string.history_retry) { _, _ ->
                 scope.launch {
                     withContext(Dispatchers.IO) { PilotDatabase.get(this@HistoryActivity).photoRecordDao().retryLocal(entry.photoPath) }
-                    PhotoUploadWorker.enqueue(this@HistoryActivity)
+                    // Run while the user is here, even if Android has delayed WorkManager.
+                    UploadCoordinator.kick(applicationContext)
                     renderHistory(findViewById(R.id.recyclerHistory), findViewById(R.id.tvEmpty))
                 }
             }.show()
@@ -140,7 +140,7 @@ class HistoryActivity : AppCompatActivity() {
                         .url("$backendUrl/upload-jobs/$jobId/chat-message")
                         .delete()
                         .build()
-                    client.newCall(request).execute().use { response ->
+                    PhotoApi.execute(request).use { response ->
                         if (!response.isSuccessful) {
                             throw IllegalStateException("Server error ${response.code}")
                         }
@@ -156,8 +156,7 @@ class HistoryActivity : AppCompatActivity() {
             } else {
                 val confirmedDeleted = withContext(Dispatchers.IO) {
                     runCatching {
-                        client.newCall(Request.Builder().url("$backendUrl/upload-jobs/$jobId").build())
-                            .execute().use { response ->
+                        PhotoApi.execute(Request.Builder().url("$backendUrl/upload-jobs/$jobId").build()).use { response ->
                                 if (!response.isSuccessful) return@use false
                                 val payload = JSONObject(response.body?.string().orEmpty())
                                 val job = payload.optJSONObject("job") ?: payload

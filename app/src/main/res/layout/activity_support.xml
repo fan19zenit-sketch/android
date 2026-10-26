@@ -14,6 +14,11 @@
             android:layout_marginTop="12dp" android:textSize="14sp" android:textColor="#636C70" />
         <Button android:id="@+id/supportCheck" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="56dp" android:layout_marginTop="24dp" android:text="@string/support_check" android:textAllCaps="false" />
+        <TextView android:id="@+id/supportTechnical" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:textSize="14sp" android:textColor="#202529" android:textIsSelectable="true" />
+        <Button android:id="@+id/supportShare" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+            android:text="@string/support_share" android:textAllCaps="false" />
         <Button android:id="@+id/supportUpdate" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="56dp" android:layout_marginTop="8dp" android:text="@string/support_no_update" android:textAllCaps="false" android:enabled="false" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"

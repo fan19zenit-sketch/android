@@ -60,7 +60,11 @@ def create_app():
                     auth = request.headers.get("authorization", "")
                     if not auth.startswith("Bearer "):
                         raise Denied("Missing token")
-                    result = await run_in_threadpool(store.heartbeat, data["device"], auth[7:], data["diagnostics"])
+                    if "diagnostic_schema" in data and (type(data["diagnostic_schema"]) is not int or data["diagnostic_schema"] != 2):
+                        raise ValueError("Invalid diagnostic schema")
+                    result = await run_in_threadpool(store.heartbeat, data["device"], auth[7:], data["diagnostics"],
+                                                    data["events"] if data.get("diagnostic_schema") == 2 else None,
+                                                    data["network"] if data.get("diagnostic_schema") == 2 else None)
             return JSONResponse(result, headers={"Cache-Control": "no-store"})
         except Denied:
             return JSONResponse({"error": "not_authorized"}, 403)

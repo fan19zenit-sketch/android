@@ -19,8 +19,18 @@ object SupportPolicy {
 
     fun allowedDownload(url: String): Boolean = runCatching {
         val uri = URI(url)
-        uri.scheme == "https" && uri.rawAuthority == "194-55-235-241.sslip.io" &&
-            uri.rawQuery == null && uri.rawFragment == null &&
-            Regex("/downloads/[A-Za-z0-9._-]+\\.apk").matches(uri.rawPath)
+        uri.scheme == "https" && uri.rawQuery == null && uri.rawFragment == null &&
+            ((uri.rawAuthority == "194-55-235-241.sslip.io" &&
+                Regex("/downloads/[A-Za-z0-9._-]+\\.apk").matches(uri.rawPath)) ||
+             (uri.rawAuthority == "app.sushigohub.ru" &&
+                Regex("/photo-downloads/[A-Za-z0-9._-]+\\.apk").matches(uri.rawPath)))
     }.getOrDefault(false)
+
+    fun downloadAddresses(url: String): List<String> {
+        if (!allowedDownload(url)) return emptyList()
+        val primary = "https://194-55-235-241.sslip.io/downloads/"
+        val reserve = "https://app.sushigohub.ru/photo-downloads/"
+        return if (url.startsWith(primary)) listOf(url, reserve + url.removePrefix(primary))
+        else listOf(url, primary + url.removePrefix(reserve))
+    }
 }

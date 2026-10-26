@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SupportPolicyTest {
+    @org.junit.Test fun downloadsHaveOnlyTwoFixedHttpsLocations() {
+        val url = "https://194-55-235-241.sslip.io/downloads/test.apk"
+        org.junit.Assert.assertEquals(listOf(url, "https://app.sushigohub.ru/photo-downloads/test.apk"),
+            SupportPolicy.downloadAddresses(url))
+        org.junit.Assert.assertTrue(SupportPolicy.downloadAddresses("https://app.sushigohub.ru/api/test.apk").isEmpty())
+        org.junit.Assert.assertTrue(SupportPolicy.downloadAddresses("$url?token=secret").isEmpty())
+    }
     @Test fun configurationHasSafeBounds() {
         assertEquals(SupportSettings(false, 60, true), SupportPolicy.settings(false, 60, true, 120))
         assertEquals(SupportSettings(), SupportPolicy.settings(false, 0, true, 120))

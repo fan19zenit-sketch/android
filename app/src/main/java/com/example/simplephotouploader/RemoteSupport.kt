@@ -9,11 +9,13 @@ import android.system.OsConstants
 import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 import java.io.IOException
 import java.time.Instant
@@ -25,7 +27,20 @@ object RemoteSupport {
     const val BASE_URL = "https://194-55-235-241.sslip.io/mobile-support"
     private val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(false).followSslRedirects(false).build()
+        .followRedirects(false).followSslRedirects(false)
+        .eventListenerFactory { it.request().tag(ConnectionTrace::class.java) ?: okhttp3.EventListener.NONE }.build()
+    @Volatile private var lastImmediate = 0L
+
+    @Synchronized fun checkImmediately(context: Context) {
+        val now = SystemClock.elapsedRealtime()
+        if (lastImmediate != 0L && now - lastImmediate < 60000) return
+        lastImmediate = now
+        App.ioScope.launch {
+            runCatching { sync(context.applicationContext, force = true) }.onFailure {
+                prefs(context).edit().putString("sync_error", "support_unavailable").apply()
+            }
+        }
+    }
 
     fun prefs(context: Context) = context.getSharedPreferences("remote_support", Context.MODE_PRIVATE)
     private fun boot(context: Context) = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
@@ -98,20 +113,57 @@ object RemoteSupport {
 
     internal fun post(path: String, body: JSONObject, token: String? = null,
                       transport: OkHttpClient = client, endpoint: String = BASE_URL): JSONObject {
-        val request = Request.Builder().url("$endpoint/$path")
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-        if (token != null) request.header("Authorization", "Bearer $token")
-        return transport.newCall(request.build()).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("support_http_${response.code}")
-            val source = response.body?.source() ?: throw IOException("support_empty")
-            source.request(8193)
-            val data = source.buffer.readByteArray(minOf(source.buffer.size, 8193))
-            if (data.size > 8192) throw IOException("support_too_large")
-            JSONObject(String(data, Charsets.UTF_8))
+        val endpoints = if (endpoint == BASE_URL) listOf(BASE_URL, ConnectionPolicy.RESERVE_SUPPORT) else listOf(endpoint)
+        var last: IOException? = null
+        for ((index, address) in endpoints.withIndex()) {
+            val trace = ConnectionTrace("support", if (address == BASE_URL) "primary" else if
+                (address == ConnectionPolicy.RESERVE_SUPPORT) "reserve" else "custom")
+            val request = Request.Builder().url("$address/$path").tag(ConnectionTrace::class.java, trace)
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+            if (token != null) request.header("Authorization", "Bearer $token")
+            try {
+                return transport.newCall(request.build()).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        trace.finish(response.code, "http_${response.code}")
+                        if (response.code !in setOf(502, 503, 504) || index == endpoints.lastIndex)
+                            throw SupportHttpException(response.code)
+                        throw IOException("support_unavailable")
+                    }
+                    val source = response.body?.source() ?: throw IOException("support_empty")
+                    source.request(8193)
+                    val data = source.buffer.readByteArray(minOf(source.buffer.size, 8193))
+                    if (data.size > 8192) throw IOException("support_too_large")
+                    JSONObject(String(data, Charsets.UTF_8)).also { trace.finish(response.code) }
+                }
+            } catch (error: SupportHttpException) { throw error }
+            catch (error: IOException) {
+                trace.finish(error = ConnectionPolicy.error(error, trace.phase))
+                last = error
+            }
         }
+        throw last ?: IOException("support_unavailable")
     }
 
-    fun sync(context: Context, force: Boolean) {
+    private class SupportHttpException(code: Int) : IOException("support_http_$code")
+
+    fun probe(): String = listOf(BASE_URL to "primary", ConnectionPolicy.RESERVE_SUPPORT to "reserve")
+        .joinToString("\n") { (url, label) ->
+            val trace = ConnectionTrace("probe", label)
+            runCatching {
+                client.newBuilder().callTimeout(12, TimeUnit.SECONDS).build()
+                    .newCall(Request.Builder().url("$url/health").tag(ConnectionTrace::class.java, trace).build())
+                    .execute().use { response ->
+                        trace.finish(response.code, if (response.isSuccessful) "" else "http_${response.code}")
+                        "$label: HTTP ${response.code}"
+                    }
+            }.getOrElse { error ->
+                val code = if (error is IOException) ConnectionPolicy.error(error, trace.phase) else "probe_failed"
+                trace.finish(error = code)
+                "$label: $code / ${trace.id}"
+            }
+        }
+
+    @Synchronized fun sync(context: Context, force: Boolean) {
         if (BuildConfig.APPLICATION_ID.endsWith(".preview")) return
         val app = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
         val backend = app.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL)
@@ -131,9 +183,20 @@ object RemoteSupport {
             identity.setProperty("token", token)
             saveIdentity(context, identity)
         }
-        val response = post("heartbeat", JSONObject().put("device", device).put("diagnostics", diagnostics(context)),
+        // Older support servers ignore optional fields and do not acknowledge the journal.
+        val journal = DiagnosticJournal.events(context)
+        val recentFailures = journal.filter { it.optString("error").isNotEmpty() }.takeLast(4)
+        val priority = recentFailures.map { it.optString("id") }.toSet()
+        val events = recentFailures + journal.filterNot { it.optString("id") in priority }.take(12 - recentFailures.size)
+        val response = post("heartbeat", JSONObject().put("device", device).put("diagnostics", diagnostics(context))
+            .put("diagnostic_schema", 2).put("network", DiagnosticJournal.network(context)).put("events", JSONArray(events)),
             identity.getProperty("token"))
         applyResponse(context, response)
+        val ack = response.optJSONArray("ack_events")
+        if (ack != null) {
+            val sentIds = events.map { it.getString("id") }.toSet()
+            DiagnosticJournal.acknowledge(context, (0 until ack.length()).map { ack.optString(it) }.toSet().intersect(sentIds))
+        }
     }
 
     internal fun applyResponse(context: Context, response: JSONObject) {

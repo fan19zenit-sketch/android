@@ -77,6 +77,42 @@ def telemetry(value):
     return value
 
 
+def connection_events(value):
+    if not isinstance(value, list) or len(value) > 12:
+        raise ValueError("Too many diagnostic events")
+    fields = {"id", "at", "operation", "phase", "endpoint", "trace", "elapsed_ms", "http", "error"}
+    for event in value:
+        if not isinstance(event, dict) or set(event) != fields:
+            raise ValueError("Invalid event fields")
+        identifier(event["id"])
+        for field, maximum in (("at", 10000000000000), ("elapsed_ms", 3600000), ("http", 599)):
+            if type(event[field]) is not int or not 0 <= event[field] <= maximum:
+                raise ValueError("Invalid event number")
+        if event["operation"] not in {"registration", "upload", "delete", "status", "support", "probe"}:
+            raise ValueError("Invalid operation")
+        if event["phase"] not in {"start", "dns", "connect", "tls", "request", "upload", "response"}:
+            raise ValueError("Invalid connection phase")
+        if event["endpoint"] not in {"primary", "reserve", "custom"}:
+            raise ValueError("Invalid endpoint")
+        if not isinstance(event["trace"], str) or not re.fullmatch(r"[a-f0-9]{8}", event["trace"]):
+            raise ValueError("Invalid trace")
+        if not isinstance(event["error"], str) or not re.fullmatch(r"[a-z0-9_]{0,40}", event["error"]):
+            raise ValueError("Invalid diagnostic code")
+    return value
+
+
+def network_state(value):
+    flags = {"connected", "validated", "captive_portal", "metered", "power_save", "idle",
+             "battery_exempt", "background_restricted"}
+    if not isinstance(value, dict) or set(value) != flags | {"transport"}:
+        raise ValueError("Invalid network fields")
+    if any(type(value[field]) is not bool for field in flags):
+        raise ValueError("Invalid network flag")
+    if value["transport"] not in {"none", "wifi", "cellular", "vpn", "other"}:
+        raise ValueError("Invalid network transport")
+    return value
+
+
 class Store:
     def __init__(self, database, registry, secret, clock=time.time):
         self.database, self.registry, self.secret, self.clock = str(database), Path(registry), secret, clock
@@ -93,6 +129,12 @@ class Store:
                 CREATE TABLE IF NOT EXISTS releases (package TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS audit (
                   at INTEGER NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS diagnostic_events (
+                  device TEXT NOT NULL, event_id TEXT NOT NULL, received INTEGER NOT NULL, value TEXT NOT NULL,
+                  PRIMARY KEY(device, event_id));
+                CREATE INDEX IF NOT EXISTS diagnostic_events_received ON diagnostic_events(received);
+                CREATE TABLE IF NOT EXISTS network_state (
+                  device TEXT PRIMARY KEY, seen INTEGER NOT NULL, value TEXT NOT NULL);
             """)
 
     @contextlib.contextmanager
@@ -126,19 +168,34 @@ class Store:
                 raise Denied("Installation already bound; administrator reset required")
         return {"token": self.token(device, installation)}
 
-    def heartbeat(self, device, token, data):
+    def heartbeat(self, device, token, data, events=None, network=None):
         device, data = identifier(device), telemetry(data)
+        if events is not None:
+            events = connection_events(events)
+            network = network_state(network)
         city, now = self.city(device), int(self.clock())
         with self.db() as db:
             row = db.execute("SELECT installation FROM devices WHERE device=?", (device,)).fetchone()
             if not row or not hmac.compare_digest(self.token(device, row[0]), token):
                 raise Denied("Unauthorized")
+            if events is not None:
+                for event in events:
+                    db.execute("INSERT OR IGNORE INTO diagnostic_events VALUES (?,?,?,?)",
+                               (device, event["id"], now, json.dumps(event)))
+                db.execute("INSERT OR REPLACE INTO network_state VALUES (?,?,?)", (device, now, json.dumps(network)))
+                # Server time bounds retention even when a phone's clock is wrong.
+                db.execute("DELETE FROM diagnostic_events WHERE received<?", (now - 14 * 86400,))
+                db.execute("""DELETE FROM diagnostic_events WHERE device=? AND event_id NOT IN
+                           (SELECT event_id FROM diagnostic_events WHERE device=? ORDER BY received DESC,rowid DESC LIMIT 2000)""",
+                           (device, device))
             db.execute("UPDATE devices SET city=?, seen=?, diagnostics=? WHERE device=?",
                        (city, now, json.dumps(data), device))
             config = db.execute("SELECT expires,value FROM config WHERE device=? AND expires>?", (device, now)).fetchone()
             update = db.execute("SELECT value FROM releases WHERE package=?", (data["package"],)).fetchone()
         result = {"schema": 1, "settings": json.loads(config[1]) if config else {},
                   "ttl_seconds": min(config[0] - now, 86400) if config else 0}
+        if events is not None:
+            result["ack_events"] = [event["id"] for event in events]
         if update:
             info = json.loads(update[0])
             if info["version_code"] > data["version_code"] and info["min_sdk"] <= data["sdk"]:
@@ -172,6 +229,8 @@ class Store:
         with self.db() as db:
             db.execute("DELETE FROM devices WHERE device=?", (device,))
             db.execute("DELETE FROM config WHERE device=?", (device,))
+            db.execute("DELETE FROM diagnostic_events WHERE device=?", (device,))
+            db.execute("DELETE FROM network_state WHERE device=?", (device,))
             db.execute("INSERT INTO audit VALUES (?,?,?,?)", (int(self.clock()), "reset", device, "{}"))
 
     def backup(self, destination):
