@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "source_commit": "c1e2f42b0365bb511b2fc297d5cded0a2fb29b3d",
+  "package": "com.example.photovchistotu",
+  "version_name": "3.2.0",
+  "version_code": 20261026,
+  "min_sdk": 24,
+  "target_sdk": 34,
+  "signed_asset": "photo-v-chistotu-3.2.0-update.apk",
+  "signed_size": 7141316,
+  "signed_sha256": "beb6026893a9c2d42a2944f4d11dcd98162151a1b6d214c834d8bc18692053e3",
+  "signer_sha256": "7d0884e53e704a683a162ca2f34c7db1e1006c07c20147d61f1892d4b3dcfca4",
+  "signed": true,
+  "independent_static_acceptance": true,
+  "signed_emulator_upgrade_acceptance": true,
+  "production_published": false,
+  "physical_device_acceptance": false
+}
