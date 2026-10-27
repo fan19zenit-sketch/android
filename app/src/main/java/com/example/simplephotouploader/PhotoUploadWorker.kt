@@ -9,6 +9,9 @@ import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.Request
@@ -47,19 +50,43 @@ class PhotoUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        UploadCoordinator.process(applicationContext)
+        Result.success()
+    }
+}
+
+object UploadCoordinator {
+    private val mutex = Mutex()
+    private val kicked = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun kick(context: Context) {
+        if (!kicked.compareAndSet(false, true)) return
+        App.ioScope.launch {
+            try { process(context.applicationContext) }
+            catch (error: kotlinx.coroutines.CancellationException) { throw error }
+            catch (error: Exception) { RemoteSupport.event(context.applicationContext, "queue_processing_error") }
+            finally { kicked.set(false) }
+        }
+    }
+
+    suspend fun process(context: Context, onlyPath: String? = null) = withContext(Dispatchers.IO) {
+        mutex.withLock { drain(context.applicationContext, onlyPath) }
+    }
+
+    private suspend fun drain(applicationContext: Context, onlyPath: String?) {
         val prefs = applicationContext.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
         val backend = prefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL).orEmpty().trimEnd('/')
         val deviceId = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
-        if (backend.isBlank() || deviceId.isBlank()) return@withContext Result.failure()
+        if (backend.isBlank() || deviceId.isBlank()) return
         val dao = PilotDatabase.get(applicationContext).photoRecordDao()
         if (RemoteSupport.settings(applicationContext).uploadsPaused) {
-            updateStatus(R.string.support_paused)
+            updateStatus(applicationContext, R.string.support_paused)
             if (dao.queuedCount() > 0) QueueRetryWorker.schedule(applicationContext, false).result.get()
-            return@withContext Result.success()
+            return
         }
         val startedAt = android.os.SystemClock.elapsedRealtime()
-        for (queued in dao.getQueuedRecords()) {
-            ensureActive()
+        for (queued in dao.getQueuedRecords().filter { onlyPath == null || it.photoPath == onlyPath }) {
+            kotlin.coroutines.coroutineContext.ensureActive()
             if (RemoteSupport.settings(applicationContext).uploadsPaused) break
             if (android.os.SystemClock.elapsedRealtime() - startedAt > 180_000) break
             val item = dao.getByPhotoPath(queued.photoPath) ?: continue
@@ -79,14 +106,13 @@ class PhotoUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
                 continue
             }
             PhotoHistoryStore.markSending(applicationContext, item.photoPath)
-            updateStatus(R.string.status_sending)
+            updateStatus(applicationContext, R.string.status_sending)
             val body = MultipartBody.Builder().setType(MultipartBody.FORM)
                 .addFormDataPart("deviceUuid", deviceId)
                 .addFormDataPart("clientUploadId", item.id)
                 .addFormDataPart("photo", file.name, file.asRequestBody("image/jpeg".toMediaType())).build()
             try {
-                PhotoApi.client.newCall(Request.Builder().url("$backend/upload-v2").post(body).build())
-                    .execute().use { response ->
+                PhotoApi.execute(Request.Builder().url("$backend/upload-v2").post(body).build()).use { response ->
                         if (response.code == 202) {
                             val job = runCatching { JSONObject(response.body?.string().orEmpty()).optJSONObject("job") }.getOrNull()
                             val jobId = job?.optString("job_id").orEmpty()
@@ -94,7 +120,7 @@ class PhotoUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
                             // Commit acknowledgement before cleanup or scheduling other work.
                             dao.acknowledgeUpload(item.photoPath, jobId)
                             RemoteSupport.event(applicationContext, "upload_acknowledged")
-                            updateStatus(R.string.status_server_received)
+                            updateStatus(applicationContext, R.string.status_server_received)
                             UploadStatusSyncWorker.enqueue(applicationContext)
                         } else if (UploadPolicy.retryableHttp(response.code)) {
                             RemoteSupport.event(applicationContext, "upload_http_${response.code}")
@@ -111,14 +137,17 @@ class PhotoUploadWorker(context: Context, params: WorkerParameters) : CoroutineW
                         "upload_timeout" else "upload_connection_error")
                 }
                 PhotoHistoryStore.markRetry(applicationContext, item.photoPath, error.message)
-                updateStatus(R.string.status_retrying)
+                updateStatus(applicationContext, R.string.status_retrying)
+                RemoteSupport.check(applicationContext, force = true)
+                RemoteSupport.checkImmediately(applicationContext)
+                // One network failure is sufficient; do not multiply timeouts by the queue size.
+                break
             }
         }
         if (dao.getQueuedPaths().isNotEmpty()) QueueRetryWorker.schedule(applicationContext, false).result.get()
-        Result.success()
     }
 
-    private fun updateStatus(resource: Int) {
+    private fun updateStatus(applicationContext: Context, resource: Int) {
         applicationContext.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
             .putString(AppPrefs.KEY_LAST_STATUS, applicationContext.getString(resource)).apply()
     }

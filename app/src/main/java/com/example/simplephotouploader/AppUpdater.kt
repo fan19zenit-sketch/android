@@ -39,29 +39,34 @@ object AppUpdater {
         val target = File(directory, "update.apk")
         if (target.exists() && runCatching { verify(context, target, info) }.isSuccess) return target
         val temporary = File(directory, "download.part")
-        try {
-            client.newCall(Request.Builder().url(info.getString("url")).build()).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("Download failed")
-                val body = response.body ?: throw IOException("Empty update")
-                if (body.contentLength() > MAX_BYTES) throw IOException("Update too large")
-                body.byteStream().use { input ->
-                    temporary.outputStream().use { output ->
-                        val buffer = ByteArray(32768)
-                        var total = 0L
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            total += count
-                            if (total > MAX_BYTES) throw IOException("Update too large")
-                            output.write(buffer, 0, count)
+        var failure: IOException? = null
+        for (address in SupportPolicy.downloadAddresses(info.getString("url"))) {
+            try {
+                client.newCall(Request.Builder().url(address).build()).execute().use { response ->
+                    if (!response.isSuccessful) throw IOException("Download failed")
+                    val body = response.body ?: throw IOException("Empty update")
+                    if (body.contentLength() > MAX_BYTES) throw IOException("Update too large")
+                    body.byteStream().use { input ->
+                        temporary.outputStream().use { output ->
+                            val buffer = ByteArray(32768)
+                            var total = 0L
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                total += count
+                                if (total > MAX_BYTES) throw IOException("Update too large")
+                                output.write(buffer, 0, count)
+                            }
                         }
                     }
                 }
-            }
-            verify(context, temporary, info)
-            if (!temporary.renameTo(target)) throw IOException("Cannot save update")
-            return target
-        } finally { temporary.delete() }
+                verify(context, temporary, info)
+                if (!temporary.renameTo(target)) throw IOException("Cannot save update")
+                return target
+            } catch (error: IOException) { failure = error }
+            finally { temporary.delete() }
+        }
+        throw failure ?: IOException("No official update address")
     }
 
     @Suppress("DEPRECATION")

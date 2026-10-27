@@ -60,7 +60,8 @@ class HistoryAdapter(
                 item.status == "uploaded_to_server" -> itemView.context.getString(R.string.history_status_server)
                 item.status == "sending_to_chat" -> itemView.context.getString(R.string.history_status_chat)
                 item.status == "sending" -> itemView.context.getString(R.string.history_status_sending)
-                item.status == "retrying" -> itemView.context.getString(R.string.history_status_retrying)
+                item.status == "retrying" -> listOfNotNull(
+                    itemView.context.getString(R.string.history_status_retrying), item.error).joinToString("\n")
                 item.error != null -> item.error
                 else -> itemView.context.getString(R.string.history_waiting)
             }

@@ -32,8 +32,7 @@ class UploadStatusSyncWorker(context: Context, params: WorkerParameters) : Corou
             ensureActive()
             if (android.os.SystemClock.elapsedRealtime() - startedAt > 180_000) break
             try {
-                PhotoApi.client.newCall(Request.Builder().url("$backend/upload-jobs/${item.jobId}").build())
-                    .execute().use { response ->
+                PhotoApi.execute(Request.Builder().url("$backend/upload-jobs/${item.jobId}").build()).use { response ->
                         if (response.code == 404) {
                             PhotoHistoryStore.markServerNeedsReview(applicationContext, item.jobId!!,
                                 applicationContext.getString(R.string.history_server_unknown))

@@ -73,6 +73,8 @@ class MainActivity : AppCompatActivity() {
         if (imageCapture == null && !cameraStarting &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera()
         RemoteSupport.schedule(this)
+        RemoteSupport.checkImmediately(applicationContext)
+        UploadCoordinator.kick(applicationContext)
         refreshJob = scope.launch {
             while (isActive) {
                 val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@MainActivity) }
@@ -203,6 +205,7 @@ class MainActivity : AppCompatActivity() {
                                 } else {
                                     PhotoHistoryStore.addQueued(applicationContext, file.absolutePath)
                                     PhotoUploadWorker.enqueue(applicationContext)
+                                    UploadCoordinator.kick(applicationContext)
                                 }
                                 withContext(Dispatchers.Main) {
                                     if (!isDestroyed) statusText.setText(R.string.camera_saved)

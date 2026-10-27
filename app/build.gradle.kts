@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.simplephotouploader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 20260906
-        versionName = "3.1.0"
+        versionCode = 20261026
+        versionName = "3.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

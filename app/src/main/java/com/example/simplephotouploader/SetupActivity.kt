@@ -25,7 +25,6 @@ class SetupActivity : AppCompatActivity() {
         const val EXTRA_FORCE_EDIT = "force_edit"
     }
 
-    private val client = PhotoApi.client
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,6 +52,9 @@ class SetupActivity : AppCompatActivity() {
         val telegramThreadLabel = findViewById<TextView>(R.id.tvTelegramThreadIdLabel)
         val telegramThreadInput = findViewById<EditText>(R.id.etTelegramThreadId)
         val button = findViewById<Button>(R.id.btnSave)
+        findViewById<Button>(R.id.btnSetupSupport).setOnClickListener {
+            startActivity(Intent(this, SupportActivity::class.java))
+        }
 
         if (isCleanApp) {
             instructions.text = getString(R.string.setup_instructions_clean)
@@ -118,6 +120,11 @@ class SetupActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             val deviceUuid = prefs.getString(AppPrefs.KEY_DEVICE_UUID, null) ?: UUID.randomUUID().toString()
+            // The server may have accepted a request even when its response was lost.
+            if (!prefs.edit().putString(AppPrefs.KEY_DEVICE_UUID, deviceUuid).commit()) {
+                cityInput.error = getString(R.string.setup_storage_error)
+                return@setOnClickListener
+            }
             button.isEnabled = false
 
             scope.launch {
@@ -145,6 +152,7 @@ class SetupActivity : AppCompatActivity() {
                         .apply()
                     startMain()
                 } else {
+                    RemoteSupport.checkImmediately(applicationContext)
                     val message = result.exceptionOrNull()?.message ?: getString(R.string.registration_failed)
                     cityInput.error = message
                     cityInput.requestFocus()
@@ -186,7 +194,7 @@ class SetupActivity : AppCompatActivity() {
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            PhotoApi.execute(request).use { response ->
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
                     val message = try {
