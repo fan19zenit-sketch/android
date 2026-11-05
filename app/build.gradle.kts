@@ -54,6 +54,9 @@ android {
         jvmTarget = "17"
     }
     buildFeatures { buildConfig = true }
+    if (providers.gradleProperty("offlineInstrumentation").orNull == "true") {
+        testBuildType = "preview"
+    }
 }
 
 dependencies {
