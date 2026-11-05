@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.IOException
 
 @RunWith(AndroidJUnit4::class)
 class QueueDatabaseTest {
@@ -30,7 +31,7 @@ class QueueDatabaseTest {
             db.version = 1
         }
         Room.databaseBuilder(context, PilotDatabase::class.java, name)
-            .addMigrations(PilotDatabase.MIGRATION_1_2, PilotDatabase.MIGRATION_2_3).build().use { db ->
+            .addMigrations(PilotDatabase.MIGRATION_1_2, PilotDatabase.MIGRATION_2_3, PilotDatabase.MIGRATION_3_4).build().use { db ->
                 val restored = db.photoRecordDao().getByPhotoPath("/test/photo.jpg")!!
                 assertEquals(record(), restored)
                 assertFalse(restored.manualRetryApproved)
@@ -52,7 +53,7 @@ class QueueDatabaseTest {
             db.version = 2
         }
         Room.databaseBuilder(context, PilotDatabase::class.java, name)
-            .addMigrations(PilotDatabase.MIGRATION_2_3).build().use { db ->
+            .addMigrations(PilotDatabase.MIGRATION_2_3, PilotDatabase.MIGRATION_3_4).build().use { db ->
                 val queued = db.photoRecordDao().getByPhotoPath("/test/queued.jpg")!!
                 val sent = db.photoRecordDao().getByPhotoPath("/test/sent.jpg")!!
                 assertEquals("queued-id", queued.id)
@@ -97,6 +98,70 @@ class QueueDatabaseTest {
                 id = "id-$i", photoPath = "/test/$i.jpg", jobId = "job-$i",
                 status = "uploaded_to_server", queuedInUploadQueue = false)) }
             assertEquals(25, db.photoRecordDao().getPendingServerRecords().size)
+        }
+    }
+
+    @Test fun contextAcknowledgementIsSeparateAndRequiresExactSnapshot() {
+        Room.inMemoryDatabaseBuilder(context, PilotDatabase::class.java).build().use { db ->
+            val dao = db.photoRecordDao()
+            dao.insert(record().copy(photoContext = "snapshot"))
+            assertTrue(dao.getPendingPhotoContexts().isEmpty())
+            dao.acknowledgeUpload(record().photoPath, "job")
+            assertEquals("stable-id", dao.getPendingPhotoContexts().single().id)
+            assertEquals(0, dao.acknowledgePhotoContext("stable-id", "other", "resolved"))
+            assertEquals(1, dao.acknowledgePhotoContext("stable-id", "snapshot", "unresolved"))
+            assertTrue(dao.getPendingPhotoContexts().isEmpty())
+            val stored = dao.getByPhotoPath(record().photoPath)!!
+            assertEquals("unresolved", stored.photoContextAck)
+            assertEquals("snapshot", stored.photoContext)
+            assertEquals("job", stored.jobId)
+        }
+    }
+
+    @Test fun migrationFromVersionThreePreservesPhotoContext() {
+        val name = "migration-v3-qa"
+        context.deleteDatabase(name)
+        context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { db ->
+            db.execSQL("CREATE TABLE photo_records (id TEXT NOT NULL PRIMARY KEY, jobId TEXT, messageId TEXT, chatDeleted INTEGER NOT NULL, photoPath TEXT NOT NULL, thumbnailPath TEXT, capturedAt TEXT NOT NULL, sentAt TEXT, status TEXT NOT NULL, error TEXT, queuedInUploadQueue INTEGER NOT NULL, manualRetryApproved INTEGER NOT NULL DEFAULT 0, photoContext TEXT)")
+            db.execSQL("CREATE UNIQUE INDEX index_photo_records_photoPath ON photo_records(photoPath)")
+            db.execSQL("CREATE INDEX index_photo_records_capturedAt ON photo_records(capturedAt)")
+            db.execSQL("CREATE INDEX index_photo_records_queuedInUploadQueue ON photo_records(queuedInUploadQueue)")
+            db.execSQL("INSERT INTO photo_records VALUES ('id', 'job', NULL, 0, '/test/photo.jpg', NULL, '2026-11-05T12:00:00Z', NULL, 'uploaded_to_server', NULL, 0, 0, 'saved-snapshot')")
+            db.version = 3
+        }
+        Room.databaseBuilder(context, PilotDatabase::class.java, name)
+            .addMigrations(PilotDatabase.MIGRATION_3_4).build().use { db ->
+                val item = db.photoRecordDao().getPendingPhotoContexts().single()
+                assertEquals("id", item.id)
+                assertEquals("job", item.jobId)
+                assertEquals("saved-snapshot", item.photoContext)
+                assertNull(item.photoContextAck)
+            }
+        context.deleteDatabase(name)
+    }
+
+    @Test fun contextSyncRetriesOnlyUnacknowledgedSnapshots() {
+        Room.inMemoryDatabaseBuilder(context, PilotDatabase::class.java).build().use { db ->
+            val dao = db.photoRecordDao()
+            dao.insert(record().copy(id = "one", photoPath = "/one", jobId = "job-one", photoContext = "first"))
+            dao.insert(record().copy(id = "two", photoPath = "/two", jobId = "job-two", photoContext = "second",
+                capturedAt = "2026-09-04T14:01:00Z"))
+            val sent = mutableListOf<String>()
+            try {
+                PhotoContextSynchronizer.sync(dao) { item ->
+                    sent.add(item.id)
+                    if (item.id == "two") throw IOException("offline")
+                    "resolved"
+                }
+                fail("Expected network failure")
+            } catch (_: IOException) { }
+            assertEquals(listOf("one", "two"), sent)
+            assertEquals(listOf("two"), dao.getPendingPhotoContexts().map { it.id })
+            PhotoContextSynchronizer.sync(dao) { item -> sent.add(item.id); "resolved" }
+            assertEquals(listOf("one", "two", "two"), sent)
+            assertTrue(dao.getPendingPhotoContexts().isEmpty())
+            assertEquals("job-one", dao.getByPhotoPath("/one")!!.jobId)
+            assertEquals("job-two", dao.getByPhotoPath("/two")!!.jobId)
         }
     }
 }

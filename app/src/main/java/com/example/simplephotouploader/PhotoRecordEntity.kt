@@ -27,4 +27,5 @@ data class PhotoRecordEntity(
     val queuedInUploadQueue: Boolean,
     @ColumnInfo(defaultValue = "0") val manualRetryApproved: Boolean = false,
     val photoContext: String? = null,
+    val photoContextAck: String? = null,
 )

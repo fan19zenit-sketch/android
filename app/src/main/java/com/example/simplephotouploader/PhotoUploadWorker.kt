@@ -113,6 +113,7 @@ object UploadCoordinator {
                             if (jobId.isBlank() || jobId == "null") throw IOException("Missing server acknowledgement")
                             // Commit acknowledgement before cleanup or scheduling other work.
                             dao.acknowledgeUpload(item.photoPath, jobId)
+                            if (item.photoContext != null) PhotoContextSyncWorker.enqueue(applicationContext)
                             RemoteSupport.event(applicationContext, "upload_acknowledged")
                             updateStatus(applicationContext, R.string.status_server_received)
                             UploadStatusSyncWorker.enqueue(applicationContext)

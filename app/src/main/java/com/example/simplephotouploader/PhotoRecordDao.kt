@@ -26,6 +26,12 @@ interface PhotoRecordDao {
     @Query("UPDATE photo_records SET jobId = :jobId, status = 'uploaded_to_server', error = NULL, queuedInUploadQueue = 0 WHERE photoPath = :path")
     fun acknowledgeUpload(path: String, jobId: String)
 
+    @Query("SELECT * FROM photo_records WHERE jobId IS NOT NULL AND photoContext IS NOT NULL AND photoContextAck IS NULL ORDER BY capturedAt ASC")
+    fun getPendingPhotoContexts(): List<PhotoRecordEntity>
+
+    @Query("UPDATE photo_records SET photoContextAck = :resolution WHERE id = :id AND jobId IS NOT NULL AND photoContext = :context AND photoContextAck IS NULL")
+    fun acknowledgePhotoContext(id: String, context: String, resolution: String): Int
+
     @Query("UPDATE photo_records SET status = 'queued', error = NULL, queuedInUploadQueue = 1, manualRetryApproved = 1 WHERE photoPath = :path AND jobId IS NULL AND chatDeleted = 0 AND status IN ('error', 'needs_review', 'retrying')")
     fun retryLocal(path: String): Int
     @Query("SELECT * FROM photo_records ORDER BY capturedAt DESC")

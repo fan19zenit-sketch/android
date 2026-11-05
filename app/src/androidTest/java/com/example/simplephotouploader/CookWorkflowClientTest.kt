@@ -89,4 +89,16 @@ class CookWorkflowClientTest {
             fail("Wrong acknowledgement must fail")
         } catch (_: IOException) { }
     }
+
+    @Test fun initializesExistingBindingWithoutSendingCity() {
+        val client = CookWorkflowClient("https://example.test") { request ->
+            assertEquals("POST", request.method)
+            assertEquals("/cook-v2/binding/initialize", request.url.encodedPath)
+            val body = Buffer().also { request.body!!.writeTo(it) }.readUtf8()
+            assertTrue(body.contains("\"deviceUuid\":\"device-a\""))
+            assertFalse(body.contains("city"))
+            response(request, 200, """{"branchRef":"a","bindingRevision":2}""")
+        }
+        assertEquals(CookBinding("a", 2), client.initializeBinding("device-a"))
+    }
 }

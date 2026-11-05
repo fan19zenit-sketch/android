@@ -14,6 +14,7 @@ data class CookCapabilities(val roster: Boolean, val shift: Boolean, val photoCo
 }
 data class CookEmployee(val id: String, val displayName: String, val roles: List<String>)
 data class CookRoster(val branchRef: String, val employees: List<CookEmployee>)
+data class CookBinding(val branchRef: String, val revision: Int)
 data class CookShift(val id: String, val revision: Int, val branchRef: String, val operationalDate: String,
                      val timezone: String, val confirmedAt: String, val cooks: List<String>,
                      val operators: List<String>, val mainCookId: String)
@@ -41,6 +42,15 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
     fun capabilities(): CookCapabilities? = request("capabilities")?.let {
         if (it.optInt("schemaVersion") != 1) throw IOException("Unsupported Cook API schema")
         CookCapabilities(it.optBoolean("roster"), it.optBoolean("shift"), it.optBoolean("photoContext"))
+    }
+
+    fun initializeBinding(deviceId: String): CookBinding {
+        val json = request("binding/initialize", body = JSONObject().put("deviceUuid", deviceId))
+            ?: throw IOException("Missing device binding")
+        val branch = json.optString("branchRef")
+        val revision = json.optInt("bindingRevision")
+        if (branch.isBlank() || revision < 1) throw IOException("Invalid device binding")
+        return CookBinding(branch, revision)
     }
 
     fun roster(deviceId: String): CookRoster? = request("employees", mapOf("deviceUuid" to deviceId))?.let { json ->

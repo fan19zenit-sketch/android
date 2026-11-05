@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [PhotoRecordEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class PilotDatabase : RoomDatabase() {
@@ -26,6 +26,11 @@ abstract class PilotDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE photo_records ADD COLUMN photoContext TEXT")
             }
         }
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE photo_records ADD COLUMN photoContextAck TEXT")
+            }
+        }
         @Volatile
         private var instance: PilotDatabase? = null
 
@@ -36,7 +41,7 @@ abstract class PilotDatabase : RoomDatabase() {
                     PilotDatabase::class.java,
                     "pilot-photo-db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .allowMainThreadQueries()
                     .build()
                     .also { instance = it }

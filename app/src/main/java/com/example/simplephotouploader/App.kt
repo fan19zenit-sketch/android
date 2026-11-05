@@ -22,6 +22,9 @@ class App : Application() {
         if (PilotDatabase.get(this).photoRecordDao().getPendingServerRecords().isNotEmpty()) {
             UploadStatusSyncWorker.enqueue(this)
         }
+        if (PilotDatabase.get(this).photoRecordDao().getPendingPhotoContexts().isNotEmpty()) {
+            PhotoContextSyncWorker.enqueue(this)
+        }
         val existingFiles = File(filesDir, "photos").listFiles().orEmpty()
         ioScope.launch {
             val dao = PilotDatabase.get(this@App).photoRecordDao()
