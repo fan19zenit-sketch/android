@@ -1,5 +1,14 @@
 # Simple Photo Uploader
 
+## Фотобот V2: новая задача разработки
+
+Спецификация **PHOTOBOT_COOK_WORKFLOW_V2_20261105**: [точка входа](docs/photobot-cook-workflow-v2/README.md), [Android](docs/photobot-cook-workflow-v2/ANDROID.md), [правила приложения](app/AGENTS.md).
+
+Каноническая полная задача и этапы S0–S8 находятся в [frontpad-parsers](https://github.com/fan19zenit-sketch/frontpad-parsers/blob/codex/photobot-cook-workflow-v2-spec/operations/photo_platform/docs/cook_workflow_v2/TASK.md). Активную серверную часть изменять в operations/photo_platform/apps/photo_backend того репозитория. Существующая копия backend ниже и прежние команды её развёртывания не подтверждают текущую production-топологию; перед выпуском следовать новому RUNTIME_AND_RELEASE.md.
+
+Этот раздел добавляет документацию. Приложение и production в рамках подготовки спецификации не изменены.
+
+
 Проект уже рабочий, но не надо романтизировать его текущее состояние: это не SaaS-платформа, а прикладной инструмент под ваши телефоны и ваши чаты. Его сила в простоте, а не в “магии”.
 
 ## Что умеет
@@ -147,3 +156,4 @@ cd d:\neiroq\android
 - PowerShell на Windows иногда уродует кириллицу в ручных HTTP-запросах. Для приложения это не критично, но руками лучше не дебажить JSON через “голый” `Invoke-WebRequest`, если хочешь видеть русский текст без мусора.
 - По умолчанию backend не хранит успешно доставленные фото. Иначе сервер очень быстро превратится в помойку.
 - Лог отправок тоже ограничен: старые записи режутся по сроку и по максимальному количеству, чтобы JSON не рос бесконечно.
+
