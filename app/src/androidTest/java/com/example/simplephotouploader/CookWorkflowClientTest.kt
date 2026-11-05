@@ -71,4 +71,22 @@ class CookWorkflowClientTest {
         assertTrue(requests.single().contains("\"requestId\":\"request-1\""))
         assertTrue(requests.single().contains("\"mainCookId\":\"cook-1\""))
     }
+
+    @Test fun photoContextRequiresMatchingExplicitAcknowledgement() {
+        var valid = true
+        val client = CookWorkflowClient("https://example.test") { request ->
+            assertEquals("PUT", request.method)
+            assertEquals("/cook-v2/photo-context", request.url.encodedPath)
+            val body = Buffer().also { request.body!!.writeTo(it) }.readUtf8()
+            assertTrue(body.contains("\"clientUploadId\":\"photo-1\""))
+            val id = if (valid) "photo-1" else "another"
+            response(request, 200, """{"clientUploadId":"$id","schemaVersion":1,"photoContextStatus":"stored","resolution":"unresolved"}""")
+        }
+        assertEquals("unresolved", client.syncPhotoContext("device-a", "photo-1", "{\"schemaVersion\":1}"))
+        valid = false
+        try {
+            client.syncPhotoContext("device-a", "photo-1", "{\"schemaVersion\":1}")
+            fail("Wrong acknowledgement must fail")
+        } catch (_: IOException) { }
+    }
 }

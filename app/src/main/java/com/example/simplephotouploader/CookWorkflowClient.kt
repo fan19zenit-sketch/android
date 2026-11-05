@@ -22,12 +22,13 @@ data class CookShift(val id: String, val revision: Int, val branchRef: String, v
 class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Response = { PhotoApi.execute(it) }) {
     private val base = baseUrl.trimEnd('/').toHttpUrl()
 
-    private fun request(path: String, params: Map<String, String> = emptyMap(), body: JSONObject? = null): JSONObject? {
+    private fun request(path: String, params: Map<String, String> = emptyMap(), body: JSONObject? = null,
+                        method: String = "POST"): JSONObject? {
         val builder = base.newBuilder().addPathSegment("cook-v2")
         path.split('/').forEach { builder.addPathSegment(it) }
         params.forEach { (key, value) -> builder.addQueryParameter(key, value) }
         val request = Request.Builder().url(builder.build()).apply {
-            if (body != null) post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            if (body != null) method(method, body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
         }.build()
         execute(request).use { response ->
             if (response.code == 404 && path == "capabilities") return null
@@ -74,6 +75,24 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
                     strings(item.getJSONArray("cooks")), strings(item.getJSONArray("operators")), item.getString("mainCookId"))
             }
         }
+
+    fun syncPhotoContext(deviceId: String, uploadId: String, photoContext: String): String {
+        val context = try { JSONObject(photoContext) } catch (error: Exception) {
+            throw IOException("Invalid saved photo context", error)
+        }
+        val acknowledgement = request("photo-context", body = JSONObject().put("deviceUuid", deviceId)
+            .put("clientUploadId", uploadId).put("photoContext", context), method = "PUT")
+            ?: throw IOException("Missing photo context acknowledgement")
+        if (acknowledgement.optString("clientUploadId") != uploadId || acknowledgement.optInt("schemaVersion") != 1 ||
+            acknowledgement.optString("photoContextStatus") != "stored") {
+            throw IOException("Photo context was not acknowledged")
+        }
+        val resolution = acknowledgement.optString("resolution")
+        if (resolution !in setOf("resolved", "unresolved", "not_applicable")) {
+            throw IOException("Invalid photo context resolution")
+        }
+        return resolution
+    }
 
     private fun strings(array: JSONArray): List<String> = (0 until array.length()).map { array.getString(it) }
 }
