@@ -9,7 +9,9 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class CookCapabilities(val roster: Boolean, val shift: Boolean, val photoContext: Boolean)
+data class CookCapabilities(val roster: Boolean, val shift: Boolean, val photoContext: Boolean) {
+    val supportsAttributedCapture: Boolean get() = roster && shift && photoContext
+}
 data class CookEmployee(val id: String, val displayName: String, val roles: List<String>)
 data class CookRoster(val branchRef: String, val employees: List<CookEmployee>)
 data class CookShift(val id: String, val revision: Int, val branchRef: String, val operationalDate: String,
