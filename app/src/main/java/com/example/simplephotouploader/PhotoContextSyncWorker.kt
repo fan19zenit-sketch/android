@@ -15,8 +15,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object PhotoContextSynchronizer {
-    fun sync(dao: PhotoRecordDao, send: (PhotoRecordEntity) -> String) {
+    fun sync(dao: PhotoRecordDao, eligible: (PhotoRecordEntity) -> Boolean = { true }, send: (PhotoRecordEntity) -> String) {
         for (item in dao.getPendingPhotoContexts()) {
+            if (!eligible(item)) continue
             val snapshot = item.photoContext ?: continue
             val resolution = send(item)
             if (resolution !in setOf("resolved", "unresolved", "not_applicable")) {
@@ -48,7 +49,7 @@ class PhotoContextSyncWorker(context: Context, params: WorkerParameters) : Corou
         try {
             val client = CookWorkflowClient(backend)
             if (client.capabilities()?.photoContext != true) return@withContext Result.retry()
-            PhotoContextSynchronizer.sync(dao) { item ->
+            PhotoContextSynchronizer.sync(dao, eligible = { PhotoRouteGuard.sameDeviceAndBackend(it, deviceId, backend) }) { item ->
                 client.syncPhotoContext(deviceId, item.id, requireNotNull(item.photoContext))
             }
             Result.success()

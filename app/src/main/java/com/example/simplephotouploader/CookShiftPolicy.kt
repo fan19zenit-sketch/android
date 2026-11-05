@@ -12,7 +12,8 @@ object CookShiftPolicy {
     /** Never infer today's attribution from yesterday's shift or another city. */
     fun usable(shift: CookShift?, binding: CookBinding?, confirmedBinding: CookBinding?, now: Instant): Boolean {
         if (shift == null || binding == null || confirmedBinding != binding || binding.revision < 1 || shift.revision < 1 ||
-            binding.branchRef.isBlank() || shift.branchRef != binding.branchRef) return false
+            binding.branchRef.isBlank() || shift.branchRef != binding.branchRef ||
+            (binding.timezone != null && binding.timezone != shift.timezone)) return false
         return try {
             val zone = ZoneId.of(shift.timezone)
             val confirmed = OffsetDateTime.parse(shift.confirmedAt).toInstant()

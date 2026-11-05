@@ -102,11 +102,28 @@ object UploadCoordinator {
                     applicationContext.getString(R.string.history_file_missing))
                 continue
             }
+            if (!PhotoRouteGuard.sameDeviceAndBackend(item, deviceId, backend)) {
+                dao.update(item.copy(status = "needs_review", queuedInUploadQueue = false,
+                    error = applicationContext.getString(R.string.history_binding_changed)))
+                continue
+            }
             PhotoHistoryStore.markSending(applicationContext, item.photoPath)
             updateStatus(applicationContext, R.string.status_sending)
             val body = PhotoUploadMultipart.build(deviceId, item.id, file, item.photoContext)
             try {
-                PhotoApi.execute(Request.Builder().url("$backend/upload-v2").post(body).build()).use { response ->
+                if (item.photoContext != null) {
+                    val client = CookWorkflowClient(backend)
+                    if (client.capabilities()?.supportsAttributedCapture != true) {
+                        throw IOException("Waiting for a server that supports photo attribution")
+                    }
+                    if (!PhotoRouteGuard.sameBinding(item, client.initializeBinding(deviceId))) {
+                        dao.update(item.copy(status = "needs_review", queuedInUploadQueue = false,
+                            error = applicationContext.getString(R.string.history_binding_changed)))
+                        continue
+                    }
+                }
+                val endpoint = if (item.photoContext != null) "cook-v2/upload" else "upload-v2"
+                PhotoApi.execute(Request.Builder().url("$backend/$endpoint").post(body).build()).use { response ->
                         if (response.code == 202) {
                             val payload = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
                             val job = payload?.optJSONObject("job")
@@ -123,7 +140,7 @@ object UploadCoordinator {
                             RemoteSupport.event(applicationContext, "upload_acknowledged")
                             updateStatus(applicationContext, R.string.status_server_received)
                             UploadStatusSyncWorker.enqueue(applicationContext)
-                        } else if (UploadPolicy.retryableHttp(response.code)) {
+                        } else if (UploadPolicy.retryableHttp(response.code) || (item.photoContext != null && response.code == 404)) {
                             RemoteSupport.event(applicationContext, "upload_http_${response.code}")
                             throw IOException("HTTP ${response.code}")
                         } else {

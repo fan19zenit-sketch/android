@@ -33,6 +33,8 @@ object PhotoHistoryStore {
         photoPath: String,
         capturedAt: String = Instant.now().toString(),
         photoContext: String? = null,
+        captureDeviceUuid: String? = null,
+        captureBackendUrl: String? = null,
     ): String {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getByPhotoPath(photoPath)
@@ -56,6 +58,8 @@ object PhotoHistoryStore {
                 error = null,
                 queuedInUploadQueue = true,
                 photoContext = photoContext,
+                captureDeviceUuid = captureDeviceUuid,
+                captureBackendUrl = captureBackendUrl,
             )
         )
         return id

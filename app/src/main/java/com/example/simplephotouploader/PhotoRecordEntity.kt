@@ -28,4 +28,6 @@ data class PhotoRecordEntity(
     @ColumnInfo(defaultValue = "0") val manualRetryApproved: Boolean = false,
     val photoContext: String? = null,
     val photoContextAck: String? = null,
+    val captureDeviceUuid: String? = null,
+    val captureBackendUrl: String? = null,
 )

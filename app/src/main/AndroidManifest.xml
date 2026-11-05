@@ -29,6 +29,8 @@
 
         <activity android:name=".SupportActivity" android:exported="false"
             android:theme="@style/Theme.SimplePhotoUploader.NoActionBar" />
+        <activity android:name=".CookShiftActivity" android:exported="false"
+            android:theme="@style/Theme.SimplePhotoUploader.NoActionBar" />
 
         <activity
             android:name=".SetupActivity"

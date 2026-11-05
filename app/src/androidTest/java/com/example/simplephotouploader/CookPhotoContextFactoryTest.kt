@@ -39,6 +39,10 @@ class CookPhotoContextFactoryTest {
             assertTrue(result.isNull("cookRef"))
             assertTrue(result.isNull("cookNameSnapshot"))
             invalid { CookPhotoContextFactory.create(binding, binding, shift, cook, source, time) }
+            val noShift = JSONObject(CookPhotoContextFactory.createUnassigned(binding.copy(timezone = "Europe/Moscow"), source, time))
+            assertTrue(noShift.isNull("shiftRef"))
+            assertTrue(noShift.isNull("cookRef"))
+            assertEquals(source, noShift.getString("selectionSource"))
         }
     }
 

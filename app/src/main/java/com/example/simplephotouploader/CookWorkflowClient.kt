@@ -14,7 +14,7 @@ data class CookCapabilities(val roster: Boolean, val shift: Boolean, val photoCo
 }
 data class CookEmployee(val id: String, val displayName: String, val roles: List<String>)
 data class CookRoster(val branchRef: String, val employees: List<CookEmployee>)
-data class CookBinding(val branchRef: String, val revision: Int)
+data class CookBinding(val branchRef: String, val revision: Int, val timezone: String? = null)
 data class CookShift(val id: String, val revision: Int, val branchRef: String, val operationalDate: String,
                      val timezone: String, val confirmedAt: String, val cooks: List<String>,
                      val operators: List<String>, val mainCookId: String)
@@ -50,7 +50,11 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         val branch = json.optString("branchRef")
         val revision = json.optInt("bindingRevision")
         if (branch.isBlank() || revision < 1) throw IOException("Invalid device binding")
-        return CookBinding(branch, revision)
+        val timezone = json.optString("timezone").takeIf { it.isNotBlank() }
+        if (timezone != null) try { java.time.ZoneId.of(timezone) } catch (error: Exception) {
+            throw IOException("Invalid branch timezone", error)
+        }
+        return CookBinding(branch, revision, timezone)
     }
 
     fun roster(deviceId: String): CookRoster? = request("employees", mapOf("deviceUuid" to deviceId))?.let { json ->
@@ -61,17 +65,21 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         })
     }
 
-    fun addManual(deviceId: String, requestId: String, name: String, roles: List<String>): CookEmployee? =
+    fun addManual(deviceId: String, requestId: String, name: String, roles: List<String>, binding: CookBinding? = null): CookEmployee? =
         request("employees/manual", body = JSONObject().put("deviceUuid", deviceId).put("requestId", requestId)
-            .put("displayName", name).put("roles", JSONArray(roles)))?.let {
+            .put("displayName", name).put("roles", JSONArray(roles)).apply {
+                if (binding != null) put("branchRef", binding.branchRef).put("bindingRevision", binding.revision)
+            })?.let {
             CookEmployee(it.getString("employeeId"), it.getString("displayName"), strings(it.getJSONArray("roles")))
         }
 
-    fun confirmShift(deviceId: String, requestId: String, shift: CookShift): Pair<String, Int>? =
+    fun confirmShift(deviceId: String, requestId: String, shift: CookShift, binding: CookBinding? = null): Pair<String, Int>? =
         request("shifts", body = JSONObject().put("deviceUuid", deviceId).put("requestId", requestId)
             .put("shiftId", shift.id).put("operationalDate", shift.operationalDate).put("timezone", shift.timezone)
             .put("confirmedAt", shift.confirmedAt).put("cooks", JSONArray(shift.cooks))
-            .put("operators", JSONArray(shift.operators)).put("mainCookId", shift.mainCookId))?.let {
+            .put("operators", JSONArray(shift.operators)).put("mainCookId", shift.mainCookId).apply {
+                if (binding != null) put("branchRef", binding.branchRef).put("bindingRevision", binding.revision)
+            })?.let {
             it.getString("shiftId") to it.getInt("shiftRevision")
         }
 

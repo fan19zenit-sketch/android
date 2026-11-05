@@ -31,7 +31,7 @@ class QueueDatabaseTest {
             db.version = 1
         }
         Room.databaseBuilder(context, PilotDatabase::class.java, name)
-            .addMigrations(PilotDatabase.MIGRATION_1_2, PilotDatabase.MIGRATION_2_3, PilotDatabase.MIGRATION_3_4).build().use { db ->
+            .addMigrations(PilotDatabase.MIGRATION_1_2, PilotDatabase.MIGRATION_2_3, PilotDatabase.MIGRATION_3_4, PilotDatabase.MIGRATION_4_5).build().use { db ->
                 val restored = db.photoRecordDao().getByPhotoPath("/test/photo.jpg")!!
                 assertEquals(record(), restored)
                 assertFalse(restored.manualRetryApproved)
@@ -53,7 +53,7 @@ class QueueDatabaseTest {
             db.version = 2
         }
         Room.databaseBuilder(context, PilotDatabase::class.java, name)
-            .addMigrations(PilotDatabase.MIGRATION_2_3, PilotDatabase.MIGRATION_3_4).build().use { db ->
+            .addMigrations(PilotDatabase.MIGRATION_2_3, PilotDatabase.MIGRATION_3_4, PilotDatabase.MIGRATION_4_5).build().use { db ->
                 val queued = db.photoRecordDao().getByPhotoPath("/test/queued.jpg")!!
                 val sent = db.photoRecordDao().getByPhotoPath("/test/sent.jpg")!!
                 assertEquals("queued-id", queued.id)
@@ -130,12 +130,35 @@ class QueueDatabaseTest {
             db.version = 3
         }
         Room.databaseBuilder(context, PilotDatabase::class.java, name)
-            .addMigrations(PilotDatabase.MIGRATION_3_4).build().use { db ->
+            .addMigrations(PilotDatabase.MIGRATION_3_4, PilotDatabase.MIGRATION_4_5).build().use { db ->
                 val item = db.photoRecordDao().getPendingPhotoContexts().single()
                 assertEquals("id", item.id)
                 assertEquals("job", item.jobId)
                 assertEquals("saved-snapshot", item.photoContext)
                 assertNull(item.photoContextAck)
+            }
+        context.deleteDatabase(name)
+    }
+
+    @Test fun migrationFromVersionFourPreservesQueueAndContext() {
+        val name = "migration-v4-qa"
+        context.deleteDatabase(name)
+        context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { db ->
+            db.execSQL("CREATE TABLE photo_records (id TEXT NOT NULL PRIMARY KEY, jobId TEXT, messageId TEXT, chatDeleted INTEGER NOT NULL, photoPath TEXT NOT NULL, thumbnailPath TEXT, capturedAt TEXT NOT NULL, sentAt TEXT, status TEXT NOT NULL, error TEXT, queuedInUploadQueue INTEGER NOT NULL, manualRetryApproved INTEGER NOT NULL DEFAULT 0, photoContext TEXT, photoContextAck TEXT)")
+            db.execSQL("CREATE UNIQUE INDEX index_photo_records_photoPath ON photo_records(photoPath)")
+            db.execSQL("CREATE INDEX index_photo_records_capturedAt ON photo_records(capturedAt)")
+            db.execSQL("CREATE INDEX index_photo_records_queuedInUploadQueue ON photo_records(queuedInUploadQueue)")
+            db.execSQL("INSERT INTO photo_records VALUES ('old', NULL, NULL, 0, '/old.jpg', NULL, '2026-11-05T12:00:00Z', NULL, 'queued', NULL, 1, 0, 'snapshot', NULL)")
+            db.version = 4
+        }
+        Room.databaseBuilder(context, PilotDatabase::class.java, name)
+            .addMigrations(PilotDatabase.MIGRATION_4_5).build().use { db ->
+                val item = db.photoRecordDao().getByPhotoPath("/old.jpg")!!
+                assertEquals("old", item.id)
+                assertEquals("snapshot", item.photoContext)
+                assertTrue(item.queuedInUploadQueue)
+                assertNull(item.captureDeviceUuid)
+                assertNull(item.captureBackendUrl)
             }
         context.deleteDatabase(name)
     }

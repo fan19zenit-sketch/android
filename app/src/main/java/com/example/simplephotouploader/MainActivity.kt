@@ -10,6 +10,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -21,11 +22,18 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import java.io.File
 import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : AppCompatActivity() {
-    companion object { private val captures = CaptureGate() }
+    companion object {
+        private val captures = CaptureGate()
+        private val cookSelection = CookCaptureSelection()
+        private var selectedShift: CachedCookShift? = null
+        private var unassignedChoice: String? = null
+        private var unassignedRevision = 0L
+    }
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
     private lateinit var captureButton: View
@@ -35,6 +43,14 @@ class MainActivity : AppCompatActivity() {
     private var cameraStarting = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var refreshJob: Job? = null
+    private var cookMode = false
+    private var currentBinding: CookBinding? = null
+    private var lastShiftPrompt = ""
+    private var cookRefreshJob: Job? = null
+    private var cookPanelKey = ""
+    private val shiftForm = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (it.resultCode == RESULT_OK) refreshCookWorkflow()
+    }
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         if (it) startCamera() else showPermissionError()
     }
@@ -47,6 +63,10 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         captureButton = findViewById(R.id.captureButton)
         settingsButton = findViewById(R.id.settingsButton)
+        if (BuildConfig.FLAVOR == "clean") {
+            cookMode = BuildConfig.BUILD_TYPE == "preview" ||
+                CookLocalSession.preferences(applicationContext).getBoolean("workflow_enabled", false)
+        }
         captureButton.isEnabled = false
         val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
         if (BuildConfig.BUILD_TYPE == "preview" && prefs.getString(AppPrefs.KEY_CITY, null).isNullOrBlank()) {
@@ -79,6 +99,7 @@ class MainActivity : AppCompatActivity() {
         RemoteSupport.schedule(this)
         RemoteSupport.checkImmediately(applicationContext)
         UploadCoordinator.kick(applicationContext)
+        if (BuildConfig.FLAVOR == "clean") refreshCookWorkflow()
         refreshJob = scope.launch {
             while (isActive) {
                 val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@MainActivity) }
@@ -88,6 +109,7 @@ class MainActivity : AppCompatActivity() {
                 statusText.text = when {
                     cameraError -> getString(R.string.camera_unavailable)
                     captures.busy -> getString(R.string.camera_capturing)
+                    cookMode && !hasCaptureSelection() -> getString(R.string.camera_shift_required)
                     filesDir.usableSpace < 200L * 1024 * 1024 -> getString(R.string.camera_low_storage)
                     RemoteSupport.settings(this@MainActivity).uploadsPaused -> getString(R.string.support_paused)
                     issues > 0 -> getString(R.string.camera_issues, issues)
@@ -96,6 +118,7 @@ class MainActivity : AppCompatActivity() {
                     else -> getString(R.string.camera_ready)
                 }
                 captureButton.isEnabled = imageCapture != null && !captures.busy
+                if (cookMode) refreshCookPanel()
                 val thumb = items.firstOrNull()?.thumbnailPath
                 (settingsButton as? ImageView)?.let { image ->
                     if (image.tag != thumb) {
@@ -160,7 +183,46 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val captureId = captures.begin() ?: return
-        val capturedAt = Instant.now().toString()
+        val instant = Instant.now()
+        val capturedAt = instant.toString()
+        var reservation: CookCaptureSelection.Reservation? = null
+        var photoContext: String? = null
+        var unassignedAtCapture: Pair<String, Long>? = null
+        if (cookMode) {
+            val snapshot = selectedShift
+            val binding = currentBinding
+            if (snapshot == null || !CookShiftPolicy.usable(snapshot.shift, binding, snapshot.binding, instant)) {
+                val choice = unassignedChoice
+                try {
+                    photoContext = CookPhotoContextFactory.createUnassigned(requireNotNull(binding), requireNotNull(choice), instant)
+                    unassignedAtCapture = choice to unassignedRevision
+                } catch (_: Exception) {
+                    captures.finish(captureId)
+                    showShiftRequired()
+                    return
+                }
+            } else {
+                reservation = cookSelection.reserve()
+                if (reservation == null) { captures.finish(captureId); return }
+                try {
+                    val employee = snapshot.employees.firstOrNull { it.id == reservation.cookId }
+                    photoContext = CookPhotoContextFactory.create(requireNotNull(binding), snapshot.binding,
+                        snapshot.shift, employee, reservation.selectionSource, instant)
+                } catch (error: Exception) {
+                    cookSelection.finish(reservation, false)
+                    captures.finish(captureId)
+                    showShiftRequired()
+                    return
+                }
+            }
+        }
+        val reserved = reservation
+        val frozenContext = photoContext
+        val frozenUnassigned = unassignedAtCapture
+        val capturePrefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
+        val frozenDevice = capturePrefs.getString(AppPrefs.KEY_DEVICE_UUID, null)?.takeIf { it.isNotBlank() }
+        val frozenBackend = capturePrefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL)
+            ?.trimEnd('/')?.takeIf { it.isNotBlank() }
         val timedOut = AtomicBoolean(false)
         captureButton.isEnabled = false
         statusText.setText(R.string.camera_capturing)
@@ -171,6 +233,7 @@ class MainActivity : AppCompatActivity() {
             withContext(Dispatchers.Main) {
                 if (captures.finish(captureId)) {
                     timedOut.set(true)
+                    reserved?.let { cookSelection.finish(it, false) }
                     RemoteSupport.event(applicationContext, "camera_timeout")
                     if (!isDestroyed && !isFinishing) {
                         imageCapture = null
@@ -188,6 +251,7 @@ class MainActivity : AppCompatActivity() {
                     override fun onError(error: ImageCaptureException) {
                         watchdog.cancel()
                         if (!timedOut.get()) RemoteSupport.event(applicationContext, "camera_capture_error")
+                        reserved?.let { cookSelection.finish(it, false) }
                         if (captures.finish(captureId) && !isDestroyed) {
                             captureButton.isEnabled = imageCapture != null
                             statusText.setText(R.string.status_error)
@@ -208,7 +272,16 @@ class MainActivity : AppCompatActivity() {
                                         }
                                     }
                                 } else {
-                                    PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt)
+                                    PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt, frozenContext,
+                                        frozenDevice.takeIf { frozenContext != null }, frozenBackend.takeIf { frozenContext != null })
+                                    reserved?.let { cookSelection.finish(it, true) }
+                                    withContext(Dispatchers.Main) {
+                                        if (frozenUnassigned != null && unassignedChoice == frozenUnassigned.first &&
+                                            unassignedRevision == frozenUnassigned.second) {
+                                            unassignedChoice = null
+                                            unassignedRevision++
+                                        }
+                                    }
                                     PhotoUploadWorker.enqueue(applicationContext)
                                     UploadCoordinator.kick(applicationContext)
                                 }
@@ -216,6 +289,7 @@ class MainActivity : AppCompatActivity() {
                                     if (!isDestroyed) statusText.setText(R.string.camera_saved)
                                 }
                             } catch (error: Exception) {
+                                reserved?.let { cookSelection.finish(it, false) }
                                 RemoteSupport.event(applicationContext, "queue_save_error")
                                 Log.e("Camera", "Could not queue saved photo", error)
                                 withContext(Dispatchers.Main) {
@@ -232,10 +306,130 @@ class MainActivity : AppCompatActivity() {
                 })
         } catch (error: Exception) {
             watchdog.cancel()
+            reserved?.let { cookSelection.finish(it, false) }
             captures.finish(captureId)
             captureButton.isEnabled = imageCapture != null && !captures.busy
             statusText.setText(R.string.status_error)
         }
+    }
+
+    private fun showShiftRequired() {
+        if (!isFinishing && !isDestroyed) AlertDialog.Builder(this)
+            .setMessage("Подтвердите состав смены перед съёмкой")
+            .setPositiveButton("Открыть смену") { _, _ -> openShift() }
+            .setNegativeButton(R.string.close, null).show()
+    }
+
+    private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java))
+
+    private fun hasCaptureSelection(): Boolean {
+        val snapshot = selectedShift
+        return (snapshot != null && CookShiftPolicy.usable(snapshot.shift, currentBinding, snapshot.binding, Instant.now())) ||
+            (currentBinding?.timezone != null && unassignedChoice != null)
+    }
+
+    private fun styleCookChip(chip: com.google.android.material.chip.Chip) {
+        chip.chipBackgroundColor = android.content.res.ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+            intArrayOf(android.graphics.Color.rgb(186, 56, 127), android.graphics.Color.rgb(48, 48, 48)))
+        chip.setTextColor(android.graphics.Color.WHITE)
+        chip.isAllCaps = false
+    }
+
+    private fun refreshCookWorkflow() {
+        cookRefreshJob?.cancel()
+        cookRefreshJob = scope.launch {
+            val state = withContext(Dispatchers.IO) {
+                val local = CookLocalSession.preferences(applicationContext)
+                val cached = CookLocalSession.cache(applicationContext).load()
+                val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
+                val preview = BuildConfig.BUILD_TYPE == "preview"
+                var enabled = preview || local.getBoolean("workflow_enabled", false)
+                var verified: CookBinding? = null
+                if (!preview) runCatching {
+                    val backend = prefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL).orEmpty()
+                    val device = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
+                    if (backend.isNotBlank() && device.isNotBlank()) {
+                        val client = CookWorkflowClient(backend)
+                        if (client.capabilities()?.supportsAttributedCapture == true) {
+                            verified = client.initializeBinding(device)
+                            enabled = true
+                            local.edit().putBoolean("workflow_enabled", true).commit()
+                        }
+                    }
+                }
+                Triple(enabled, verified ?: cached?.binding, cached)
+            }
+            cookMode = state.first
+            currentBinding = state.second
+            val candidate = state.third?.takeIf { it.binding == currentBinding }
+            if (candidate != selectedShift) {
+                selectedShift = candidate
+                unassignedChoice = null
+                unassignedRevision++
+                if (candidate != null) cookSelection.setRoster(candidate.shift.cooks.toSet(), candidate.shift.mainCookId)
+            }
+            refreshCookPanel()
+            maybePromptForShift()
+        }
+    }
+
+    private fun maybePromptForShift() {
+        val binding = currentBinding
+        val timezone = binding?.timezone ?: return
+        val candidate = selectedShift
+        if (cookMode && CookShiftPolicy.needsConfirmation(candidate?.shift, binding, candidate?.binding, timezone, Instant.now())) {
+            val day = Instant.now().atZone(ZoneId.of(timezone)).toLocalDate().toString()
+            if (lastShiftPrompt != day && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                lastShiftPrompt = day
+                openShift()
+            }
+        }
+    }
+
+    private fun refreshCookPanel() {
+        val panel = findViewById<View>(R.id.cookPanel) ?: return
+        panel.visibility = if (cookMode) View.VISIBLE else View.GONE
+        if (!cookMode) return
+        val next = findViewById<TextView>(R.id.cookNext)
+        val choices = findViewById<LinearLayout>(R.id.cookChoices)
+        val snapshot = selectedShift?.takeIf { CookShiftPolicy.usable(it.shift, currentBinding, it.binding, Instant.now()) }
+        val selected = cookSelection.current()
+        val source = if (snapshot != null) cookSelection.currentSource() else unassignedChoice
+        val key = "$snapshot|$selected|$source|$currentBinding"
+        if (key == cookPanelKey) { maybePromptForShift(); return }
+        cookPanelKey = key
+        next.text = when (source) {
+            "explicit_unknown" -> "Следующее фото: автор неизвестен"
+            "shared" -> "Следующее фото: совместная работа"
+            else -> snapshot?.employees?.firstOrNull { it.id == selected }?.let { "Следующее фото: ${it.displayName}" }
+                ?: "Смена не подтверждена"
+        }
+        choices.removeAllViews()
+        if (snapshot != null) snapshot.shift.cooks.forEach { id ->
+            val employee = snapshot.employees.firstOrNull { it.id == id } ?: return@forEach
+            choices.addView(com.google.android.material.chip.Chip(this).apply {
+                styleCookChip(this)
+                text = employee.displayName + if (id == snapshot.shift.mainCookId) " · основной" else ""
+                isCheckable = true; isChecked = id == selected
+                setOnClickListener { cookSelection.selectOneShot(id); refreshCookPanel() }
+            })
+        }
+        if (currentBinding?.timezone != null) {
+            listOf("explicit_unknown" to "Автор неизвестен", "shared" to "Совместно").forEach { (value, title) ->
+                choices.addView(com.google.android.material.chip.Chip(this).apply {
+                    styleCookChip(this)
+                    text = title; isCheckable = true; isChecked = source == value
+                    setOnClickListener {
+                        if (snapshot != null) cookSelection.selectUnassigned(value)
+                        else { unassignedChoice = value; unassignedRevision++ }
+                        refreshCookPanel()
+                    }
+                })
+            }
+        }
+        choices.addView(com.google.android.material.chip.Chip(this).apply { styleCookChip(this); text = "Смена"; setOnClickListener { openShift() } })
+        maybePromptForShift()
     }
 
     private fun showPermissionError() {

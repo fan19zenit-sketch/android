@@ -40,4 +40,18 @@ class CookCaptureSelectionTest {
         state.finish(active, true)
         assertNotNull(state.reserve())
     }
+
+    @Test fun unknownAndSharedAreExplicitAndResetAfterSavingOnly() {
+        val state = CookCaptureSelection()
+        state.setRoster(setOf("main", "second"), "main")
+        state.selectUnassigned("shared")
+        val first = state.reserve()!!
+        assertNull(first.cookId)
+        assertEquals("shared", first.selectionSource)
+        state.finish(first, false)
+        val retry = state.reserve()!!
+        assertEquals("shared", retry.selectionSource)
+        state.finish(retry, true)
+        assertEquals("main", state.reserve()!!.cookId)
+    }
 }

@@ -8,6 +8,18 @@ import org.json.JSONObject
 
 /** Builds the immutable data attached to one capture, not to an upload attempt. */
 object CookPhotoContextFactory {
+    fun createUnassigned(binding: CookBinding, source: String, capturedAt: Instant): String {
+        require(binding.branchRef.isNotBlank() && binding.revision > 0)
+        require(source in setOf("explicit_unknown", "shared"))
+        val timezone = requireNotNull(binding.timezone)
+        ZoneId.of(timezone)
+        return JSONObject().put("schemaVersion", 1).put("capturedAt", capturedAt.toString())
+            .put("timezone", timezone).put("branchRef", binding.branchRef).put("bindingRevision", binding.revision)
+            .put("shiftRef", JSONObject.NULL).put("shiftRevision", JSONObject.NULL).put("cookRef", JSONObject.NULL)
+            .put("cookNameSnapshot", JSONObject.NULL).put("selectionSource", source).put("rosterConfirmedAt", JSONObject.NULL)
+            .toString()
+    }
+
     fun create(
         binding: CookBinding,
         confirmedBinding: CookBinding,
@@ -18,6 +30,7 @@ object CookPhotoContextFactory {
     ): String {
         require(binding == confirmedBinding && binding.branchRef.isNotBlank() && binding.revision > 0)
         require(shift.branchRef == binding.branchRef && shift.revision > 0 && shift.id.isNotBlank())
+        require(binding.timezone == null || binding.timezone == shift.timezone)
         require(shift.cooks.isNotEmpty() && shift.operators.isNotEmpty() && shift.mainCookId in shift.cooks)
         require(shift.cooks.size == shift.cooks.toSet().size && shift.operators.size == shift.operators.toSet().size)
         val zone = ZoneId.of(shift.timezone)
