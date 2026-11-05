@@ -48,6 +48,9 @@ class MainActivity : AppCompatActivity() {
         settingsButton = findViewById(R.id.settingsButton)
         captureButton.isEnabled = false
         val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
+        if (BuildConfig.BUILD_TYPE == "preview" && prefs.getString(AppPrefs.KEY_CITY, null).isNullOrBlank()) {
+            prefs.edit().putString(AppPrefs.KEY_CITY, getString(R.string.preview_city)).apply()
+        }
         if (prefs.getString(AppPrefs.KEY_CITY, null).isNullOrBlank()) {
             startActivity(Intent(this, SetupActivity::class.java))
             finish()
