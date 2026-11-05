@@ -108,12 +108,18 @@ object UploadCoordinator {
             try {
                 PhotoApi.execute(Request.Builder().url("$backend/upload-v2").post(body).build()).use { response ->
                         if (response.code == 202) {
-                            val job = runCatching { JSONObject(response.body?.string().orEmpty()).optJSONObject("job") }.getOrNull()
+                            val payload = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
+                            val job = payload?.optJSONObject("job")
                             val jobId = job?.optString("job_id").orEmpty()
                             if (jobId.isBlank() || jobId == "null") throw IOException("Missing server acknowledgement")
                             // Commit acknowledgement before cleanup or scheduling other work.
                             dao.acknowledgeUpload(item.photoPath, jobId)
-                            if (item.photoContext != null) PhotoContextSyncWorker.enqueue(applicationContext)
+                            item.photoContext?.let { context ->
+                                val resolution = PhotoContextAcknowledgement.resolution(payload, item.id)
+                                if (resolution == null || dao.acknowledgePhotoContext(item.id, context, resolution) != 1) {
+                                    PhotoContextSyncWorker.enqueue(applicationContext)
+                                }
+                            }
                             RemoteSupport.event(applicationContext, "upload_acknowledged")
                             updateStatus(applicationContext, R.string.status_server_received)
                             UploadStatusSyncWorker.enqueue(applicationContext)

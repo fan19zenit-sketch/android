@@ -93,15 +93,8 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         val acknowledgement = request("photo-context", body = JSONObject().put("deviceUuid", deviceId)
             .put("clientUploadId", uploadId).put("photoContext", context), method = "PUT")
             ?: throw IOException("Missing photo context acknowledgement")
-        if (acknowledgement.optString("clientUploadId") != uploadId || acknowledgement.optInt("schemaVersion") != 1 ||
-            acknowledgement.optString("photoContextStatus") != "stored") {
-            throw IOException("Photo context was not acknowledged")
-        }
-        val resolution = acknowledgement.optString("resolution")
-        if (resolution !in setOf("resolved", "unresolved", "not_applicable")) {
-            throw IOException("Invalid photo context resolution")
-        }
-        return resolution
+        return PhotoContextAcknowledgement.resolution(acknowledgement, uploadId)
+            ?: throw IOException("Photo context was not acknowledged")
     }
 
     private fun strings(array: JSONArray): List<String> = (0 until array.length()).map { array.getString(it) }
