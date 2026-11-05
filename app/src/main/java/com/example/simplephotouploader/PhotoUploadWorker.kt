@@ -12,10 +12,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -107,10 +104,7 @@ object UploadCoordinator {
             }
             PhotoHistoryStore.markSending(applicationContext, item.photoPath)
             updateStatus(applicationContext, R.string.status_sending)
-            val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-                .addFormDataPart("deviceUuid", deviceId)
-                .addFormDataPart("clientUploadId", item.id)
-                .addFormDataPart("photo", file.name, file.asRequestBody("image/jpeg".toMediaType())).build()
+            val body = PhotoUploadMultipart.build(deviceId, item.id, file, item.photoContext)
             try {
                 PhotoApi.execute(Request.Builder().url("$backend/upload-v2").post(body).build()).use { response ->
                         if (response.code == 202) {

@@ -20,6 +20,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import java.io.File
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -159,6 +160,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val captureId = captures.begin() ?: return
+        val capturedAt = Instant.now().toString()
         val timedOut = AtomicBoolean(false)
         captureButton.isEnabled = false
         statusText.setText(R.string.camera_capturing)
@@ -199,14 +201,14 @@ class MainActivity : AppCompatActivity() {
                                 if (timedOut.get()) {
                                     val database = PilotDatabase.get(applicationContext)
                                     database.runInTransaction {
-                                        PhotoHistoryStore.addQueued(applicationContext, file.absolutePath)
+                                        PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt)
                                         database.photoRecordDao().getByPhotoPath(file.absolutePath)?.let {
                                             database.photoRecordDao().update(it.copy(status = "needs_review",
                                                 queuedInUploadQueue = false, error = getString(R.string.camera_late_capture)))
                                         }
                                     }
                                 } else {
-                                    PhotoHistoryStore.addQueued(applicationContext, file.absolutePath)
+                                    PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt)
                                     PhotoUploadWorker.enqueue(applicationContext)
                                     UploadCoordinator.kick(applicationContext)
                                 }
