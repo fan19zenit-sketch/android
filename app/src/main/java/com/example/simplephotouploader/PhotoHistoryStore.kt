@@ -28,7 +28,12 @@ object PhotoHistoryStore {
         val queuedInUploadQueue: Boolean,
     )
 
-    fun addQueued(context: Context, photoPath: String, capturedAt: String = Instant.now().toString()): String {
+    fun addQueued(
+        context: Context,
+        photoPath: String,
+        capturedAt: String = Instant.now().toString(),
+        photoContext: String? = null,
+    ): String {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getByPhotoPath(photoPath)
         if (existing != null) {
@@ -50,6 +55,7 @@ object PhotoHistoryStore {
                 status = "queued",
                 error = null,
                 queuedInUploadQueue = true,
+                photoContext = photoContext,
             )
         )
         return id
