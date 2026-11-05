@@ -1,0 +1,6 @@
+<resources>
+    <item name="versionText" type="id" />
+    <item name="headerSubtitle" type="id" />
+    <item name="btnRetry" type="id" />
+    <item name="tvHistorySubheader" type="id" />
+</resources>

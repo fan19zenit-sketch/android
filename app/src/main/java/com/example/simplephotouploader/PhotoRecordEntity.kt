@@ -3,6 +3,7 @@ package com.example.simplephotouploader
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.ColumnInfo
 
 @Entity(
     tableName = "photo_records",
@@ -24,4 +25,5 @@ data class PhotoRecordEntity(
     val status: String,
     val error: String?,
     val queuedInUploadQueue: Boolean,
+    @ColumnInfo(defaultValue = "0") val manualRetryApproved: Boolean = false,
 )

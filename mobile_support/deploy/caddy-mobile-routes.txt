@@ -1,0 +1,36 @@
+    # Photo Android 3.1: isolated diagnostics and a narrow HTTPS photo API.
+    handle_path /mobile-support/* {
+        request_body {
+            max_size 8KB
+        }
+        reverse_proxy 127.0.0.1:8050
+    }
+    handle_path /mobile-api/* {
+        @mobile_post {
+            method POST
+            path /register-device /upload-v2
+        }
+        handle @mobile_post {
+            request_body {
+                max_size 40MB
+            }
+            reverse_proxy 127.0.0.1:8000
+        }
+        @mobile_get {
+            method GET
+            path_regexp mobile_get ^/upload-jobs/[0-9a-fA-F-]{36}$
+        }
+        handle @mobile_get {
+            reverse_proxy 127.0.0.1:8000
+        }
+        @mobile_delete {
+            method DELETE
+            path_regexp mobile_delete ^/upload-jobs/[0-9a-fA-F-]{36}/chat-message$
+        }
+        handle @mobile_delete {
+            reverse_proxy 127.0.0.1:8000
+        }
+        handle {
+            respond "Not found" 404
+        }
+    }
