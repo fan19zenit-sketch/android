@@ -31,8 +31,7 @@ class MainActivity : AppCompatActivity() {
         private val captures = CaptureGate()
         private val cookSelection = CookCaptureSelection()
         private var selectedShift: CachedCookShift? = null
-        private var unassignedChoice: String? = null
-        private var unassignedRevision = 0L
+        private val unassignedSelection = CookUnassignedSelection()
     }
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -199,15 +198,15 @@ class MainActivity : AppCompatActivity() {
         val capturedAt = instant.toString()
         var reservation: CookCaptureSelection.Reservation? = null
         var photoContext: String? = null
-        var unassignedAtCapture: Pair<String, Long>? = null
+        var unassignedAtCapture: CookUnassignedSelection.Reservation? = null
         if (cookMode) {
             val snapshot = selectedShift
             val binding = currentBinding
             if (snapshot == null || !CookShiftPolicy.usable(snapshot.shift, binding, snapshot.binding, instant)) {
-                val choice = unassignedChoice
+                val choice = unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), instant)
                 try {
-                    photoContext = CookPhotoContextFactory.createUnassigned(requireNotNull(binding), requireNotNull(choice), instant)
-                    unassignedAtCapture = choice to unassignedRevision
+                    photoContext = CookPhotoContextFactory.createUnassigned(requireNotNull(binding), requireNotNull(choice).choice, instant)
+                    unassignedAtCapture = choice
                 } catch (_: Exception) {
                     captures.finish(captureId)
                     showShiftRequired()
@@ -299,11 +298,7 @@ class MainActivity : AppCompatActivity() {
                                         frozenDevice.takeIf { frozenContext != null }, frozenBackend.takeIf { frozenContext != null })
                                     reserved?.let { cookSelection.finish(it, true) }
                                     withContext(Dispatchers.Main) {
-                                        if (frozenUnassigned != null && unassignedChoice == frozenUnassigned.first &&
-                                            unassignedRevision == frozenUnassigned.second) {
-                                            unassignedChoice = null
-                                            unassignedRevision++
-                                        }
+                                        frozenUnassigned?.let { unassignedSelection.finish(it, true) }
                                     }
                                     PhotoUploadWorker.enqueue(applicationContext)
                                     UploadCoordinator.kick(applicationContext)
@@ -354,7 +349,7 @@ class MainActivity : AppCompatActivity() {
     private fun hasCaptureSelection(): Boolean {
         val snapshot = selectedShift
         return (snapshot != null && CookShiftPolicy.usable(snapshot.shift, currentBinding, snapshot.binding, Instant.now())) ||
-            (currentBinding?.timezone != null && unassignedChoice != null)
+            (unassignedSelection.current(currentBinding, CookLocalSession.identity(applicationContext), Instant.now()) != null)
     }
 
     private fun styleCookChip(chip: com.google.android.material.chip.Chip) {
@@ -400,8 +395,7 @@ class MainActivity : AppCompatActivity() {
               val candidate = state.third?.takeIf { it.binding == currentBinding }
               if (candidate != selectedShift) {
                 selectedShift = candidate
-                unassignedChoice = null
-                unassignedRevision++
+                unassignedSelection.clear()
                 if (candidate != null) cookSelection.setRoster(candidate.shift.cooks.toSet(), candidate.shift.mainCookId)
               }
               refreshCookPanel()
@@ -461,7 +455,8 @@ class MainActivity : AppCompatActivity() {
         val choices = findViewById<LinearLayout>(R.id.cookChoices)
         val snapshot = selectedShift?.takeIf { CookShiftPolicy.usable(it.shift, currentBinding, it.binding, Instant.now()) }
         val selected = cookSelection.current()
-        val source = if (snapshot != null) cookSelection.currentSource() else unassignedChoice
+        val source = if (snapshot != null) cookSelection.currentSource() else
+            unassignedSelection.current(currentBinding, CookLocalSession.identity(applicationContext), Instant.now())?.choice
         val key = "$snapshot|$selected|$source|$currentBinding"
         if (key == cookPanelKey) { maybePromptForShift(); return }
         cookPanelKey = key
@@ -490,7 +485,7 @@ class MainActivity : AppCompatActivity() {
                     text = title; isCheckable = true; isChecked = source == value
                     setOnClickListener {
                         if (snapshot != null) cookSelection.selectUnassigned(value)
-                        else { unassignedChoice = value; unassignedRevision++ }
+                        else unassignedSelection.select(value, currentBinding, CookLocalSession.identity(applicationContext), Instant.now())
                         refreshCookPanel()
                     }
                 })
