@@ -451,9 +451,11 @@ class MainActivity : AppCompatActivity() {
     private fun maybePromptForShift() {
         val binding = scopedBinding()
         val timezone = binding?.timezone ?: return
-        val candidate = usableShift(binding, Instant.now())
-        if (cookMode && CookShiftPolicy.needsConfirmation(candidate?.shift, binding, candidate?.binding, timezone, Instant.now())) {
-            val day = Instant.now().atZone(ZoneId.of(timezone)).toLocalDate().toString()
+        val now = if (BuildConfig.BUILD_TYPE == "preview" && intent.hasExtra("test_shift_clock_ms"))
+            Instant.ofEpochMilli(intent.getLongExtra("test_shift_clock_ms", 0)) else Instant.now()
+        val candidate = usableShift(binding, now)
+        if (cookMode && CookShiftPolicy.needsConfirmation(candidate?.shift, binding, candidate?.binding, timezone, now)) {
+            val day = now.atZone(ZoneId.of(timezone)).toLocalDate().toString()
             if (lastShiftPrompt != day && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
                 lastShiftPrompt = day
                 openShift()

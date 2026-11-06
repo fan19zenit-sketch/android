@@ -1,6 +1,7 @@
 package com.example.simplephotouploader
 
 import android.content.Context
+import android.content.Intent
 import android.os.SystemClock
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -20,6 +21,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 @RunWith(AndroidJUnit4::class)
 class CookCameraFlowTest {
@@ -94,6 +98,21 @@ class CookCameraFlowTest {
             await { visible("Подтвердите состав смены перед съёмкой") }
             SystemClock.sleep(500)
             assertEquals(0, dao.getAllHistory().count { it.id !in existing })
+        }
+    }
+
+    @Test fun openCameraPromptsForShiftWhenElevenArrives() {
+        val local = CookLocalSession.preferences(context)
+        local.edit().remove(CookOfflineSelectionCache.KEY).commit()
+        CookDeviceRosterCache(local).save(CookBinding("preview", 1, "Europe/Moscow"), emptyList())
+        val zone = ZoneId.of("Europe/Moscow")
+        val morning = ZonedDateTime.now(zone).with(LocalTime.of(10, 59, 59)).toInstant()
+        val launch = Intent(context, MainActivity::class.java).putExtra("test_shift_clock_ms", morning.toEpochMilli())
+        ActivityScenario.launch<MainActivity>(launch).use { scenario ->
+            await { cameraReady() && visible("Смена") }
+            assertTrue(!visible("Подтвердить смену"))
+            scenario.onActivity { it.intent.putExtra("test_shift_clock_ms", morning.plusSeconds(1).toEpochMilli()) }
+            await { visible("Подтвердить смену") }
         }
     }
 }
