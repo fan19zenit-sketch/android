@@ -20,9 +20,15 @@ data class CookShift(val id: String, val revision: Int, val branchRef: String, v
                      val timezone: String, val confirmedAt: String, val cooks: List<String>,
                      val operators: List<String>, val mainCookId: String)
 
+class CookApiHttpException(val status: Int) : IOException("Cook API HTTP $status")
+class CookApiProtocolException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
 /** No call here implies photo metadata was accepted; capability and acknowledgement are separate. */
 class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Response = { PhotoApi.execute(it) }) {
     private val base = baseUrl.trimEnd('/').toHttpUrl()
+
+    internal fun matchesBackend(value: String): Boolean =
+        runCatching { value.trimEnd('/').toHttpUrl() == base }.getOrDefault(false)
 
     private fun request(path: String, params: Map<String, String> = emptyMap(), body: JSONObject? = null,
                         method: String = "POST"): JSONObject? {
@@ -34,9 +40,9 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         }.build()
         execute(request).use { response ->
             if (response.code == 404 && path == "capabilities") return null
-            if (!response.isSuccessful) throw IOException("Cook API HTTP ${response.code}")
-            val raw = response.body?.string() ?: throw IOException("Cook API response missing")
-            return try { JSONObject(raw) } catch (error: Exception) { throw IOException("Invalid Cook API response", error) }
+            if (!response.isSuccessful) throw CookApiHttpException(response.code)
+            val raw = response.body?.string() ?: throw CookApiProtocolException("Cook API response missing")
+            return try { JSONObject(raw) } catch (error: Exception) { throw CookApiProtocolException("Invalid Cook API response", error) }
         }
     }
 
@@ -75,7 +81,7 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
     private fun requireProvisionalAck(json: JSONObject, key: String, id: String?, binding: CookBinding?) {
         if (id == null) return
         if (binding == null || json.optString(key) != id || json.optString("branchRef") != binding.branchRef
-            || json.opt("bindingRevision") != binding.revision) throw IOException("Provisional mapping was not acknowledged")
+            || json.opt("bindingRevision") != binding.revision) throw CookApiProtocolException("Provisional mapping was not acknowledged")
     }
 
     fun addManual(deviceId: String, requestId: String, name: String, roles: List<String>, binding: CookBinding? = null,
@@ -90,7 +96,7 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
             val employee = CookEmployee(it.getString("employeeId"), it.getString("displayName"), strings(it.getJSONArray("roles")))
             if (provisionalEmployeeId != null && (employee.id.isBlank() || employee.roles.toSet() != roles.toSet()
                     || employee.displayName != name.trim().replace(Regex("\\s+"), " ")))
-                throw IOException("Provisional employee response conflicts with request")
+                throw CookApiProtocolException("Provisional employee response conflicts with request")
             employee
         }
     }
@@ -109,7 +115,7 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
             val returnedId = it.getString("shiftId")
             val revision = it.getInt("shiftRevision")
             if (provisionalShiftId != null && (returnedId != shift.id || revision < 1))
-                throw IOException("Provisional shift response conflicts with request")
+                throw CookApiProtocolException("Provisional shift response conflicts with request")
             returnedId to revision
         }
     }

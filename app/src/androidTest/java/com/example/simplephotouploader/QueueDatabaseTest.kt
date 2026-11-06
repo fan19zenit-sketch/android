@@ -110,11 +110,15 @@ class QueueDatabaseTest {
             assertEquals("stable-id", dao.getPendingPhotoContexts().single().id)
             assertEquals(0, dao.acknowledgePhotoContext("stable-id", "other", "resolved"))
             assertEquals(1, dao.acknowledgePhotoContext("stable-id", "snapshot", "unresolved"))
-            assertTrue(dao.getPendingPhotoContexts().isEmpty())
+            assertEquals("stable-id", dao.getPendingPhotoContexts().single().id)
             val stored = dao.getByPhotoPath(record().photoPath)!!
             assertEquals("unresolved", stored.photoContextAck)
             assertEquals("snapshot", stored.photoContext)
             assertEquals("job", stored.jobId)
+            PhotoContextSynchronizer.sync(dao) { "resolved" }
+            assertTrue(dao.getPendingPhotoContexts().isEmpty())
+            assertEquals("resolved", dao.getByPhotoPath(record().photoPath)!!.photoContextAck)
+            assertEquals(0, dao.acknowledgePhotoContext("stable-id", "snapshot", "unresolved"))
         }
     }
 
