@@ -232,8 +232,11 @@ class CookShiftActivityTest {
             assertTrue(local.contains(CookOfflineSelectionCache.KEY))
             assertEquals(null, CookLocalSession.cache(context).load())
         }
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
-            "pm grant ${context.packageName} android.permission.CAMERA").close()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.grantRuntimePermission(context.packageName, android.Manifest.permission.CAMERA)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         ActivityScenario.launch(MainActivity::class.java).use {
             val deadline = SystemClock.elapsedRealtime() + 15_000
             var restored = false

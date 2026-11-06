@@ -26,8 +26,11 @@ class CookCameraFlowTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
     @Before fun prepare() {
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
-            "pm grant ${context.packageName} android.permission.CAMERA").close()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.grantRuntimePermission(context.packageName, android.Manifest.permission.CAMERA)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
             .putString(AppPrefs.KEY_CITY, "Тест").remove(AppPrefs.KEY_DEVICE_UUID).commit()
         CookLocalSession.cache(context).clear()
