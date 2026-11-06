@@ -9,8 +9,19 @@ collect_diagnostics() {
 trap collect_diagnostics EXIT
 
 # These rules apply only to the disposable CI emulator and fail closed.
-adb root
-adb wait-for-device
+root_ready=0
+for attempt in 1 2 3 4 5; do
+    adb wait-for-device
+    if adb root; then
+        adb wait-for-device
+        if [ "$(adb shell id -u | tr -d '\r')" = 0 ]; then
+            root_ready=1
+            break
+        fi
+    fi
+    sleep 3
+done
+test "$root_ready" -eq 1
 adb shell iptables -w 10 -I OUTPUT 1 -j REJECT
 adb shell iptables -w 10 -I OUTPUT 1 -o lo -j ACCEPT
 adb shell ip6tables -w 10 -I OUTPUT 1 -j REJECT
