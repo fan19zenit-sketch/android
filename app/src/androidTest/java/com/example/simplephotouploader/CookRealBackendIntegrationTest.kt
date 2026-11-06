@@ -1,5 +1,8 @@
 package com.example.simplephotouploader
 
+import android.content.Context
+import android.graphics.Bitmap
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import okhttp3.Request
@@ -11,6 +14,8 @@ import org.junit.runner.RunWith
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
+import java.io.File
+import java.security.MessageDigest
 
 /** Opt-in only: requires the isolated loopback harness and a blocked external network. */
 @RunWith(AndroidJUnit4::class)
@@ -66,6 +71,44 @@ class CookRealBackendIntegrationTest {
                 assertEquals("resolved", result.getString("resolution"))
                 assertEquals(employeeId, result.getJSONObject("snapshot").getJSONObject("cookRef").getString("id"))
             }
+        }
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = File.createTempFile("cook-api-test-", ".jpg", context.cacheDir)
+        try {
+            val bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+            try { file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.JPEG, 100, it)) } }
+            finally { bitmap.recycle() }
+            val bytes = file.readBytes()
+            val sha256 = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            val uploadId = "test-upload-${UUID.randomUUID()}"
+            fun upload(): Pair<Int, JSONObject> {
+                val request = Request.Builder().url("$base/cook-v2/upload")
+                    .post(PhotoUploadMultipart.build(a, uploadId, file, photoA)).build()
+                return PhotoApi.execute(request).use { response ->
+                    response.code to JSONObject(requireNotNull(response.body).string())
+                }
+            }
+            val (firstCode, first) = upload()
+            assertEquals(202, firstCode)
+            assertEquals("resolved", PhotoContextAcknowledgement.resolution(first, uploadId))
+            val jobId = first.getJSONObject("job").getString("job_id")
+            val (secondCode, second) = upload()
+            assertEquals(202, secondCode)
+            assertTrue(second.getBoolean("deduplicated"))
+            assertEquals(jobId, second.getJSONObject("job").getString("job_id"))
+            val inspection = Request.Builder().url("$base/fixture/upload/$uploadId").build()
+            PhotoApi.execute(inspection).use { response ->
+                assertEquals(200, response.code)
+                val saved = JSONObject(requireNotNull(response.body).string())
+                assertEquals(jobId, saved.getString("jobId"))
+                assertEquals("uploaded_to_server", saved.getString("status"))
+                assertEquals(sha256, saved.getString("sha256"))
+                assertEquals(1, saved.getInt("queued"))
+            }
+            file.writeBytes(bytes + byteArrayOf(0))
+            assertEquals(409, upload().first)
+        } finally {
+            file.delete()
         }
     }
 }
