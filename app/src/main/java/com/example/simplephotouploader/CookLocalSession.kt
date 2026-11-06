@@ -16,4 +16,13 @@ object CookLocalSession {
         return context.getSharedPreferences("cook_shift_$digest", Context.MODE_PRIVATE)
     }
     fun cache(context: Context): CookShiftCache = CookShiftCache(preferences(context))
+
+    fun offlineScope(context: Context, binding: CookBinding): CookOfflineScope {
+        if (BuildConfig.BUILD_TYPE == "preview") return CookOfflineScope("https://preview.invalid", "preview-device", binding)
+        val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
+        val backend = prefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL).orEmpty()
+        val device = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
+        require(backend.isNotBlank() && device.isNotBlank())
+        return CookOfflineScope(backend, device, binding)
+    }
 }

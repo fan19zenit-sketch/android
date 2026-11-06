@@ -69,6 +69,10 @@ abstract class CookOfflineDao {
         AND branchRef=:branch AND bindingRevision=:revision AND provisionalId=:id""")
     abstract fun shift(backend: String, device: String, branch: String, revision: Int, id: String): OfflineCookShift?
 
+    @Query("""SELECT * FROM offline_shifts WHERE backendUrl=:backend AND deviceUuid=:device
+        AND branchRef=:branch AND bindingRevision=:revision AND serverShiftId=:serverId LIMIT 1""")
+    protected abstract fun shiftByServerId(backend: String, device: String, branch: String, revision: Int, serverId: String): OfflineCookShift?
+
     @Query("""SELECT * FROM offline_employees WHERE backendUrl=:backend AND deviceUuid=:device
         AND branchRef=:branch AND bindingRevision=:revision AND canonicalId IS NULL ORDER BY rowid""")
     abstract fun pendingEmployees(backend: String, device: String, branch: String, revision: Int): List<OfflineCookEmployee>
@@ -111,6 +115,8 @@ abstract class CookOfflineDao {
     @Transaction
     open fun enqueueShift(value: OfflineCookShift) {
         CookOfflineValidation.shift(value)
+        val byServerId = shiftByServerId(value.backendUrl, value.deviceUuid, value.branchRef, value.bindingRevision, value.serverShiftId)
+        require(byServerId == null || byServerId.provisionalId == value.provisionalId) { "Conflicting server shift identity" }
         if (insertShift(value) == -1L) {
             val existing = shift(value.backendUrl, value.deviceUuid, value.branchRef, value.bindingRevision, value.provisionalId)
             require(existing?.copy(canonicalRevision = null) == value) { "Conflicting offline shift" }
@@ -144,6 +150,7 @@ object CookOfflineValidation {
         val main = reference(JSONObject(value.mainCookJson))
         require(cooks.isNotEmpty() && operators.isNotEmpty() && main in cooks)
         require(cooks.size == cooks.toSet().size && operators.size == operators.toSet().size)
+        require(cooks.map { it.second }.distinct().size == cooks.size && operators.map { it.second }.distinct().size == operators.size)
     }
 
     private fun references(raw: String): List<Pair<String, String>> {

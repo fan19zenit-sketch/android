@@ -92,6 +92,14 @@ class CookOfflineDatabaseTest {
         assertTrue(dao.pendingEmployees("https://other.test", first.deviceUuid, first.branchRef, 1).isEmpty())
     }
 
+    @Test fun identicalNamesHaveDistinctStableDisplayLabels() {
+        val first = CookEmployee("a", "Повар", listOf("cook"))
+        val second = CookEmployee("b", "Повар", listOf("cook"))
+        assertEquals("Повар · 1", CookEmployeeLabels.label(first, listOf(second, first)))
+        assertEquals("Повар · 2", CookEmployeeLabels.label(second, listOf(first, second)))
+        assertEquals("Повар", CookEmployeeLabels.label(first, listOf(first)))
+    }
+
     @Test fun requestAndProvisionalConflictsNeverReplaceStoredData() {
         val first = employee()
         dao.enqueueEmployee(first)
@@ -209,6 +217,35 @@ class CookOfflineDatabaseTest {
         assertEquals(before, calls)
     }
 
+    @Test fun interruptedBatchKeepsFirstConfirmationAndRetriesOnlyRemainingEmployee() {
+        val first = employee()
+        val second = first.copy(provisionalId = "66666666-6666-4666-8666-666666666666",
+            requestId = "77777777-7777-4777-8777-777777777777", name = "Второй")
+        dao.enqueueEmployee(first)
+        dao.enqueueEmployee(second)
+        val calls = mutableListOf<String>()
+        var failSecond = true
+        val client = CookWorkflowClient("https://example.test") { request ->
+            if (request.url.encodedPath != "/cook-v2/employees/manual") return@CookWorkflowClient server(request)
+            val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+            val provisional = body.getString("provisionalEmployeeId")
+            calls.add(provisional)
+            if (provisional == second.provisionalId && failSecond) {
+                failSecond = false
+                throw IOException("Simulated lost response")
+            }
+            response(request, JSONObject().put("employeeId", "canonical-$provisional")
+                .put("displayName", body.getString("displayName")).put("roles", body.getJSONArray("roles"))
+                .put("branchRef", "branch").put("bindingRevision", 1).put("provisionalEmployeeId", provisional))
+        }
+        val sync = CookOfflineSync(dao, client)
+        try { sync.sync(scope()); fail("Expected the second request to fail") } catch (_: IOException) { }
+        assertEquals("canonical-$employeeId", dao.employee(first.backendUrl, first.deviceUuid, first.branchRef, 1, first.provisionalId)!!.canonicalId)
+        assertNull(dao.employee(second.backendUrl, second.deviceUuid, second.branchRef, 1, second.provisionalId)!!.canonicalId)
+        assertEquals(CookOfflineSyncResult(1, 0, 0), sync.sync(scope()))
+        assertEquals(listOf(first.provisionalId, second.provisionalId, second.provisionalId), calls)
+    }
+
     @Test fun workerRetriesTemporaryNetworkErrorsButHoldsConflicts() {
         assertTrue(CookOfflineSyncWorker.shouldRetry(IOException("network")))
         assertTrue(CookOfflineSyncWorker.shouldRetry(CookApiHttpException(429)))
@@ -236,5 +273,31 @@ class CookOfflineDatabaseTest {
             prefs.edit().putString(AppPrefs.KEY_CITY, previousCity).putString(AppPrefs.KEY_BACKEND_URL, previousBackend)
                 .putString(AppPrefs.KEY_DEVICE_UUID, previousDevice).commit()
         }
+    }
+
+    @Test fun activeOfflineSelectionSurvivesSyncAndRejectsOtherScope() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences("offline-selection-test-${UUID.randomUUID()}", Context.MODE_PRIVATE)
+        val selection = CookOfflineSelectionCache(prefs, dao, scope())
+        dao.enqueueEmployee(employee())
+        dao.enqueueShift(shift())
+        val roster = listOf(CookEmployee(employeeId, "Повар", listOf("cook")),
+            CookEmployee("operator", "Оператор", listOf("operator")))
+        assertTrue(selection.save(shift(), roster))
+        val before = selection.load()!!
+        assertEquals(before, CookShiftSelection.choose(true, before, null))
+        assertNull(CookShiftSelection.choose(true, null, before))
+        assertEquals(before, CookShiftSelection.choose(false, null, before))
+        assertEquals(shiftId, before.shift.id)
+        assertEquals(employeeId, before.shift.mainCookId)
+        dao.confirmEmployee(scope().backendUrl, scope().deviceUuid, "branch", 1, employeeId, "canonical")
+        dao.confirmShift(scope().backendUrl, scope().deviceUuid, "branch", 1, shiftId, 1)
+        assertEquals(before, selection.load())
+        assertNull(CookOfflineSelectionCache(prefs, dao, scope().copy(deviceUuid = "other")).load())
+        try {
+            selection.save(shift(), roster.map { if (it.id == employeeId) it.copy(displayName = "Другой") else it })
+            fail("Names must match the original provisional employee")
+        } catch (_: IllegalArgumentException) { }
+        assertEquals(before, selection.load())
     }
 }

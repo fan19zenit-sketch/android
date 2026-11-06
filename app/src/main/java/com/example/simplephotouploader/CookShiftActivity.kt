@@ -24,6 +24,9 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
+import java.io.IOException
+import org.json.JSONArray
+import org.json.JSONObject
 
 class CookShiftActivity : AppCompatActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -34,7 +37,9 @@ class CookShiftActivity : AppCompatActivity() {
     private val operators = linkedSetOf<String>()
     private var mainCook: String? = null
     private var busy = false
+    private var offlineMode = false
     private val preview get() = BuildConfig.BUILD_TYPE == "preview"
+    private data class LoadedRoster(val binding: CookBinding, val employees: List<CookEmployee>, val offline: Boolean)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,26 +98,73 @@ class CookShiftActivity : AppCompatActivity() {
         scope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    if (preview) {
+                    val loaded = if (preview) {
                         val fixture = listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")),
                             CookEmployee("cook-2", "Повар 2", listOf("cook")),
                             CookEmployee("operator-1", "Оператор 1", listOf("operator")))
-                        CookBinding("preview", 1, "Europe/Moscow") to fixture
+                        LoadedRoster(CookBinding("preview", 1, "Europe/Moscow"), fixture,
+                            intent.getBooleanExtra("test_offline", false))
                     } else {
-                        val (client, device) = client()
-                        check(client.capabilities()?.supportsAttributedCapture == true) { "Сервер пока не поддерживает смены" }
-                        val binding = client.initializeBinding(device)
-                        check(binding.timezone != null) { "Не настроен часовой пояс филиала" }
-                        val roster = requireNotNull(client.roster(device))
-                        check(roster.branchRef == binding.branchRef) { "Привязка филиала изменилась" }
-                        binding to roster.employees
+                        try {
+                            val (client, device) = client()
+                            check(client.capabilities()?.supportsAttributedCapture == true) { "Сервер пока не поддерживает смены" }
+                            val current = client.initializeBinding(device)
+                            check(current.timezone != null) { "Не настроен часовой пояс филиала" }
+                            val roster = requireNotNull(client.roster(device))
+                            check(roster.branchRef == current.branchRef) { "Привязка филиала изменилась" }
+                            LoadedRoster(current, roster.employees, false)
+                        } catch (error: IOException) {
+                            if (error is CookApiProtocolException || (error is CookApiHttpException &&
+                                    error.status !in setOf(408, 429) && error.status < 500)) throw error
+                            val cached = CookLocalSession.cache(applicationContext).load() ?: throw error
+                            LoadedRoster(cached.binding, cached.employees, true)
+                        }
                     }
+                    val scope = CookLocalSession.offlineScope(applicationContext, loaded.binding)
+                    val dao = CookOfflineDatabase.get(applicationContext).queue()
+                    val local = CookLocalSession.preferences(applicationContext)
+                    val active = if (local.contains(CookOfflineSelectionCache.KEY))
+                        CookOfflineSelectionCache(local, dao, scope).load()?.takeIf {
+                            CookShiftPolicy.usable(it.shift, loaded.binding, it.binding, Instant.now())
+                        } else null
+                    val pendingRecords = dao.pendingEmployees(scope.backendUrl, scope.deviceUuid, loaded.binding.branchRef, loaded.binding.revision)
+                    val pending = pendingRecords.map { person ->
+                            val roles = JSONArray(person.rolesJson)
+                            CookEmployee(person.provisionalId, person.name, (0 until roles.length()).map { roles.getString(it) })
+                        }
+                    if (!preview && (pendingRecords.isNotEmpty() ||
+                                dao.pendingShifts(scope.backendUrl, scope.deviceUuid, loaded.binding.branchRef, loaded.binding.revision).isNotEmpty())) {
+                        val city = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getString(AppPrefs.KEY_CITY, "").orEmpty()
+                        runCatching { CookOfflineSyncWorker.enqueue(applicationContext, scope, city) }
+                    }
+                    val activePeople = active?.employees.orEmpty().filter { person ->
+                        if (loaded.offline || preview) true else {
+                            val mapped = dao.employee(scope.backendUrl, scope.deviceUuid, loaded.binding.branchRef,
+                                loaded.binding.revision, person.id)
+                            (mapped != null && mapped.canonicalId == null) ||
+                                loaded.employees.any { it.id == (mapped?.canonicalId ?: person.id) }
+                        }
+                    }
+                    val canonicalIds = activePeople.mapNotNull { person ->
+                        dao.employee(scope.backendUrl, scope.deviceUuid, loaded.binding.branchRef, loaded.binding.revision, person.id)?.canonicalId
+                    }.toSet()
+                    loaded.copy(employees = (loaded.employees.filterNot { it.id in canonicalIds } + activePeople + pending)
+                        .distinctBy { it.id })
                 }
             }
-            result.onSuccess { (newBinding, roster) ->
+            result.onSuccess { (newBinding, roster, wasOffline) ->
                 binding = newBinding
                 employees = roster
-                val previous = withContext(Dispatchers.IO) { CookLocalSession.cache(applicationContext).load() }
+                offlineMode = wasOffline
+                val previous = withContext(Dispatchers.IO) {
+                    val scope = CookLocalSession.offlineScope(applicationContext, newBinding)
+                    val local = CookLocalSession.preferences(applicationContext)
+                    val active = if (local.contains(CookOfflineSelectionCache.KEY))
+                        CookOfflineSelectionCache(local, CookOfflineDatabase.get(applicationContext).queue(), scope).load()?.takeIf {
+                            CookShiftPolicy.usable(it.shift, newBinding, it.binding, Instant.now())
+                        } else null
+                    active ?: CookLocalSession.cache(applicationContext).load()
+                }
                 if (previous?.binding == newBinding) {
                     cooks.addAll(previous.shift.cooks.filter { id -> roster.any { it.id == id && "cook" in it.roles } })
                     operators.addAll(previous.shift.operators.filter { id -> roster.any { it.id == id && "operator" in it.roles } })
@@ -132,10 +184,11 @@ class CookShiftActivity : AppCompatActivity() {
     private fun render() {
         content.removeAllViews()
         content.addView(label("Смена", 30f))
+        if (offlineMode) content.addView(label("Нет сети", 16f, Color.rgb(255, 180, 210)))
         content.addView(label("Повара", 20f))
         employees.filter { "cook" in it.roles }.forEach { employee ->
             content.addView(CheckBox(this).apply {
-                text = employee.displayName; setTextColor(Color.WHITE); isChecked = employee.id in cooks
+                text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE); isChecked = employee.id in cooks
                 textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                 setOnCheckedChangeListener { _, checked ->
                     if (checked) cooks.add(employee.id) else cooks.remove(employee.id)
@@ -149,7 +202,7 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(RadioGroup(this).apply {
                 employees.filter { it.id in cooks }.forEach { employee ->
                     addView(RadioButton(this@CookShiftActivity).apply {
-                        id = View.generateViewId(); text = employee.displayName; setTextColor(Color.WHITE)
+                        id = View.generateViewId(); text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE)
                         textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = employee.id == mainCook
                         setOnClickListener { mainCook = employee.id }
@@ -160,7 +213,7 @@ class CookShiftActivity : AppCompatActivity() {
         content.addView(label("Операторы", 20f))
         employees.filter { "operator" in it.roles }.forEach { employee ->
             content.addView(CheckBox(this).apply {
-                text = employee.displayName; setTextColor(Color.WHITE); isChecked = employee.id in operators
+                text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE); isChecked = employee.id in operators
                 textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                 setOnCheckedChangeListener { _, checked -> if (checked) operators.add(employee.id) else operators.remove(employee.id) }
             })
@@ -176,7 +229,7 @@ class CookShiftActivity : AppCompatActivity() {
         AlertDialog.Builder(this).setTitle("Сотрудник").setView(name)
             .setMultiChoiceItems(choices, selected) { _, index, value -> selected[index] = value }
             .setNegativeButton("Отмена", null).setPositiveButton("Добавить") { _, _ ->
-                val text = name.text.toString().trim()
+                val text = name.text.toString().trim().replace(Regex("\\s+"), " ")
                 val roles = listOfNotNull("cook".takeIf { selected[0] }, "operator".takeIf { selected[1] })
                 if (text.isBlank() || roles.isEmpty()) return@setPositiveButton
                 val currentBinding = binding ?: return@setPositiveButton
@@ -186,21 +239,31 @@ class CookShiftActivity : AppCompatActivity() {
                     val result = runCatching { withContext(Dispatchers.IO) {
                         val store = CookPendingEmployeeStore(CookLocalSession.preferences(applicationContext))
                         val existing = store.load()
-                        val pending = if (existing?.binding == currentBinding && existing.name == text && existing.roles == roles) existing
-                            else PendingCookEmployee(UUID.randomUUID().toString(), currentBinding, text, roles)
-                        check(store.save(pending)) { "Не удалось сохранить запрос" }
-                        val employee = if (preview) CookEmployee(UUID.randomUUID().toString(), text, roles)
-                        else {
+                        if (existing != null) {
+                            check(existing.binding == currentBinding && existing.name == text && existing.roles == roles && !offlineMode && !preview) {
+                                "Сначала повторите предыдущий запрос сотрудника при наличии сети"
+                            }
                             val (client, device) = client()
                             check(client.initializeBinding(device) == currentBinding) { "Привязка филиала изменилась" }
-                            requireNotNull(client.addManual(device, pending.requestId, text, roles, currentBinding))
+                            val previous = requireNotNull(client.addManual(device, existing.requestId, text, roles, currentBinding))
+                            check(store.clear()) { "Не удалось сохранить подтверждение сотрудника" }
+                            previous
+                        } else {
+                            val scope = CookLocalSession.offlineScope(applicationContext, currentBinding)
+                            val record = OfflineCookEmployee(scope.backendUrl, scope.deviceUuid, currentBinding.branchRef,
+                                currentBinding.revision, UUID.randomUUID().toString(), UUID.randomUUID().toString(), text,
+                                JSONArray(roles.sorted()).toString())
+                            CookOfflineDatabase.get(applicationContext).queue().enqueueEmployee(record)
+                            if (!preview) runCatching {
+                                val city = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getString(AppPrefs.KEY_CITY, "").orEmpty()
+                                CookOfflineSyncWorker.enqueue(applicationContext, scope, city)
+                            }
+                            CookEmployee(record.provisionalId, record.name, roles)
                         }
-                        store.clear()
-                        employee
                     } }
                     busy = false
                     result.onSuccess { added -> employees = employees.filterNot { it.id == added.id } + added; render() }
-                        .onFailure { if (it is CancellationException) throw it else showError("Не удалось добавить сотрудника") }
+                        .onFailure { if (it is CancellationException) throw it else showError(it.message ?: "Не удалось добавить сотрудника") }
                 }
             }.show()
     }
@@ -229,16 +292,41 @@ class CookShiftActivity : AppCompatActivity() {
                     CookShift(UUID.randomUUID().toString(), 0, binding.branchRef, now.toLocalDate().toString(), timezone,
                         now.toOffsetDateTime().toString(), selectedCooks, selectedOperators, main))
                 check(store.save(pending)) { "Не удалось сохранить запрос смены" }
-                val revision = if (preview) 1 else {
-                    val (client, device) = client()
-                    check(client.initializeBinding(device) == binding) { "Привязка филиала изменилась" }
-                    val result = requireNotNull(client.confirmShift(device, pending.requestId, pending.shift, binding))
-                    check(result.first == pending.shift.id && result.second > 0) { "Некорректное подтверждение сервера" }
-                    result.second
+                val scope = CookLocalSession.offlineScope(applicationContext, binding)
+                val dao = CookOfflineDatabase.get(applicationContext).queue()
+                fun reference(id: String): JSONObject {
+                    val temporary = dao.employee(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision, id) != null
+                    return JSONObject().put("kind", if (temporary) "provisional" else "employee").put("id", id)
                 }
-                val snapshot = CachedCookShift(binding, pending.shift.copy(revision = revision), employees)
-                check(CookLocalSession.cache(applicationContext).save(snapshot)) { "Не удалось сохранить смену" }
-                store.clear()
+                val hasProvisional = (selectedCooks + selectedOperators).any { id -> reference(id).getString("kind") == "provisional" }
+                if (offlineMode || hasProvisional) {
+                    val localShift = OfflineCookShift(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision,
+                        pending.shift.id, pending.requestId, pending.shift.id, pending.shift.operationalDate,
+                        pending.shift.timezone, pending.shift.confirmedAt,
+                        JSONArray(selectedCooks.map(::reference)).toString(), JSONArray(selectedOperators.map(::reference)).toString(),
+                        reference(main).toString())
+                    dao.enqueueShift(localShift)
+                    val cache = CookOfflineSelectionCache(CookLocalSession.preferences(applicationContext), dao, scope)
+                    check(cache.save(localShift, employees)) { "Не удалось сохранить локальную смену" }
+                    if (!preview) runCatching {
+                        val city = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getString(AppPrefs.KEY_CITY, "").orEmpty()
+                        CookOfflineSyncWorker.enqueue(applicationContext, scope, city)
+                    }
+                } else {
+                    val revision = if (preview) 1 else {
+                        val (client, device) = client()
+                        check(client.initializeBinding(device) == binding) { "Привязка филиала изменилась" }
+                        val result = requireNotNull(client.confirmShift(device, pending.requestId, pending.shift, binding))
+                        check(result.first == pending.shift.id && result.second > 0) { "Некорректное подтверждение сервера" }
+                        result.second
+                    }
+                    val snapshot = CachedCookShift(binding, pending.shift.copy(revision = revision), employees)
+                    check(CookLocalSession.cache(applicationContext).save(snapshot)) { "Не удалось сохранить смену" }
+                    check(CookOfflineSelectionCache(CookLocalSession.preferences(applicationContext), dao, scope).clear()) {
+                        "Не удалось обновить выбор смены"
+                    }
+                }
+                check(store.clear()) { "Не удалось сохранить подтверждение смены" }
             } }
             busy = false
             result.onSuccess { setResult(RESULT_OK); finish() }

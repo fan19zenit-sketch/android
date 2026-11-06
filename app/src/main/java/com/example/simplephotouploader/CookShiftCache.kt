@@ -6,11 +6,13 @@ import java.time.ZoneId
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class CachedCookShift(val binding: CookBinding, val shift: CookShift, val employees: List<CookEmployee>)
+data class CachedCookShift(val binding: CookBinding, val shift: CookShift, val employees: List<CookEmployee>,
+                           val offlineShift: OfflineCookShift? = null, val offlineScope: CookOfflineScope? = null)
 
 /** Only confirmed shifts are cached; a one-shot choice never survives process death. */
 class CookShiftCache(private val preferences: SharedPreferences) {
     fun save(snapshot: CachedCookShift): Boolean {
+        require(snapshot.offlineShift == null && snapshot.offlineScope == null)
         validate(snapshot)
         val shift = snapshot.shift
         val employees = JSONArray(snapshot.employees.map { employee ->

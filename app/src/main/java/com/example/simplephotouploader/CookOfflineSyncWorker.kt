@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 
 class CookOfflineSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     companion object {
+        internal const val SYNC_STATE = "offline_shift_sync_state_v1"
         fun enqueue(context: Context, scope: CookOfflineScope, city: String) {
             require(city.isNotBlank() && scope.binding.branchRef.isNotBlank() && scope.binding.revision > 0)
             val identity = listOf(scope.backendUrl, scope.deviceUuid, city, scope.binding.branchRef,
@@ -30,6 +31,7 @@ class CookOfflineSyncWorker(context: Context, params: WorkerParameters) : Corout
             val work = OneTimeWorkRequestBuilder<CookOfflineSyncWorker>().setInputData(data)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build()
+            CookLocalSession.preferences(context).edit().putString(SYNC_STATE, "waiting").commit()
             WorkManager.getInstance(context).enqueueUniqueWork("cook-offline-$hash", ExistingWorkPolicy.APPEND_OR_REPLACE, work)
         }
 
@@ -55,15 +57,26 @@ class CookOfflineSyncWorker(context: Context, params: WorkerParameters) : Corout
             || prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty() != device
             || prefs.getString(AppPrefs.KEY_CITY, "").orEmpty() != city) return@withContext Result.success()
         val scope = CookOfflineScope(backend, device, CookBinding(branch, revision, timezone))
+        val syncState = CookLocalSession.preferences(applicationContext)
         try {
             val result = CookOfflineSync(CookOfflineDatabase.get(applicationContext).queue(), CookWorkflowClient(backend)).sync(scope)
             if (result.employees > 0 || result.shifts > 0) PhotoContextSyncWorker.enqueue(applicationContext)
-            if (result.waitingShifts > 0) Result.retry() else Result.success()
+            if (result.waitingShifts > 0) {
+                syncState.edit().putString(SYNC_STATE, "waiting").commit()
+                Result.retry()
+            } else {
+                syncState.edit().remove(SYNC_STATE).commit()
+                Result.success()
+            }
         } catch (error: IOException) {
-            if (shouldRetry(error)) Result.retry() else Result.failure()
+            val retry = shouldRetry(error)
+            syncState.edit().putString(SYNC_STATE, if (retry) "waiting" else "attention").commit()
+            if (retry) Result.retry() else Result.failure()
         } catch (_: org.json.JSONException) {
+            syncState.edit().putString(SYNC_STATE, "attention").commit()
             Result.failure()
         } catch (_: IllegalArgumentException) {
+            syncState.edit().putString(SYNC_STATE, "attention").commit()
             Result.failure()
         }
     }

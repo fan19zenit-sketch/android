@@ -2,6 +2,8 @@
 <resources>
     <string name="history_binding_changed">Фото относится к прежнему подключению. Отправка остановлена.</string>
     <string name="camera_shift_required">Выберите смену или укажите автора</string>
+    <string name="camera_shift_sync_pending">Смена сохранена, ожидает синхронизации</string>
+    <string name="camera_shift_sync_attention">Проверьте подключение смены</string>
     <string name="preview_city">Просмотр</string>
     <string name="app_version">Версия %1$s</string>
     <string name="camera_city">%1$s · рабочий чат</string>

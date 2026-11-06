@@ -106,6 +106,8 @@ class MainActivity : AppCompatActivity() {
                 val queued = items.count { it.queuedInUploadQueue }
                 val server = items.count { it.status in setOf("uploaded_to_server", "sending_to_chat") }
                 val issues = items.count { it.status in setOf("error", "needs_review") }
+                val shiftSync = if (cookMode) CookLocalSession.preferences(this@MainActivity)
+                    .getString(CookOfflineSyncWorker.SYNC_STATE, null) else null
                 statusText.text = when {
                     cameraError -> getString(R.string.camera_unavailable)
                     captures.busy -> getString(R.string.camera_capturing)
@@ -113,8 +115,10 @@ class MainActivity : AppCompatActivity() {
                     filesDir.usableSpace < 200L * 1024 * 1024 -> getString(R.string.camera_low_storage)
                     RemoteSupport.settings(this@MainActivity).uploadsPaused -> getString(R.string.support_paused)
                     issues > 0 -> getString(R.string.camera_issues, issues)
+                    shiftSync == "attention" -> getString(R.string.camera_shift_sync_attention)
                     queued > 0 -> getString(R.string.camera_queued, queued)
                     server > 0 -> getString(R.string.camera_server, server)
+                    shiftSync == "waiting" -> getString(R.string.camera_shift_sync_pending)
                     else -> getString(R.string.camera_ready)
                 }
                 captureButton.isEnabled = imageCapture != null && !captures.busy
@@ -206,7 +210,12 @@ class MainActivity : AppCompatActivity() {
                 if (reservation == null) { captures.finish(captureId); return }
                 try {
                     val employee = snapshot.employees.firstOrNull { it.id == reservation.cookId }
-                    photoContext = CookPhotoContextFactory.create(requireNotNull(binding), snapshot.binding,
+                    val offline = snapshot.offlineShift
+                    photoContext = if (offline != null) {
+                        val selected = reservation.cookId?.let { CookOfflineSelectionCache.cookRef(offline, it) }
+                        CookPhotoContextFactory.createProvisional(requireNotNull(snapshot.offlineScope), offline,
+                            employee, selected, reservation.selectionSource, instant)
+                    } else CookPhotoContextFactory.create(requireNotNull(binding), snapshot.binding,
                         snapshot.shift, employee, reservation.selectionSource, instant)
                 } catch (error: Exception) {
                     cookSelection.finish(reservation, false)
@@ -358,7 +367,22 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                Triple(enabled, verified ?: cached?.binding, cached)
+                val binding = verified ?: cached?.binding
+                val offline = if (binding != null && local.contains(CookOfflineSelectionCache.KEY)) {
+                    runCatching {
+                        val scope = CookLocalSession.offlineScope(applicationContext, binding)
+                        val dao = CookOfflineDatabase.get(applicationContext).queue()
+                        val active = CookOfflineSelectionCache(local, dao, scope).load()
+                            ?.takeIf { CookShiftPolicy.usable(it.shift, binding, it.binding, Instant.now()) }
+                        if (!preview && (dao.pendingEmployees(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision).isNotEmpty()
+                                || dao.pendingShifts(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision).isNotEmpty())) {
+                            val city = prefs.getString(AppPrefs.KEY_CITY, "").orEmpty()
+                            runCatching { CookOfflineSyncWorker.enqueue(applicationContext, scope, city) }
+                        }
+                        active
+                    }.getOrNull()
+                } else null
+                Triple(enabled, binding, CookShiftSelection.choose(local.contains(CookOfflineSelectionCache.KEY), offline, cached))
             }
             cookMode = state.first
             currentBinding = state.second
@@ -399,18 +423,19 @@ class MainActivity : AppCompatActivity() {
         val key = "$snapshot|$selected|$source|$currentBinding"
         if (key == cookPanelKey) { maybePromptForShift(); return }
         cookPanelKey = key
-        next.text = when (source) {
+        val nextLabel = when (source) {
             "explicit_unknown" -> "Следующее фото: автор неизвестен"
             "shared" -> "Следующее фото: совместная работа"
-            else -> snapshot?.employees?.firstOrNull { it.id == selected }?.let { "Следующее фото: ${it.displayName}" }
+            else -> snapshot?.employees?.firstOrNull { it.id == selected }?.let { "Следующее фото: ${CookEmployeeLabels.label(it, snapshot.employees)}" }
                 ?: "Смена не подтверждена"
         }
+        next.text = if (snapshot?.offlineShift != null) "$nextLabel · локальная смена" else nextLabel
         choices.removeAllViews()
         if (snapshot != null) snapshot.shift.cooks.forEach { id ->
             val employee = snapshot.employees.firstOrNull { it.id == id } ?: return@forEach
             choices.addView(com.google.android.material.chip.Chip(this).apply {
                 styleCookChip(this)
-                text = employee.displayName + if (id == snapshot.shift.mainCookId) " · основной" else ""
+                text = CookEmployeeLabels.label(employee, snapshot.employees) + if (id == snapshot.shift.mainCookId) " · основной" else ""
                 isCheckable = true; isChecked = id == selected
                 setOnClickListener { cookSelection.selectOneShot(id); refreshCookPanel() }
             })
