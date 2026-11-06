@@ -62,7 +62,7 @@ object RemoteSupport {
 
     fun schedule(context: Context) {
         // Preview builds and local mock servers must never report as a production phone.
-        if (BuildConfig.APPLICATION_ID.endsWith(".preview")) return
+        if (BuildConfig.APPLICATION_ID.endsWith(".preview") || BuildConfig.BUILD_TYPE == "localtest") return
         val backend = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
             .getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL)
         if (backend != AppPrefs.DEFAULT_BACKEND_URL && backend != AppPrefs.LEGACY_BACKEND_URL) return
@@ -165,7 +165,7 @@ object RemoteSupport {
         }
 
     @Synchronized fun sync(context: Context, force: Boolean) {
-        if (BuildConfig.APPLICATION_ID.endsWith(".preview")) return
+        if (BuildConfig.APPLICATION_ID.endsWith(".preview") || BuildConfig.BUILD_TYPE == "localtest") return
         val app = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
         val backend = app.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL)
         if (backend != AppPrefs.DEFAULT_BACKEND_URL && backend != AppPrefs.LEGACY_BACKEND_URL) return

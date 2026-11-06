@@ -30,6 +30,7 @@ $v6Local = $false
 $originalSerial = $env:ANDROID_SERIAL
 $locationPushed = $false
 $cleanupFailed = $false
+$testStarted = $false
 function Invoke-AdbChecked {
     param([string[]]$Arguments)
     & $adb -s $Emulator @Arguments | Out-Null
@@ -70,12 +71,14 @@ try {
     $env:ANDROID_SERIAL = $Emulator
     Push-Location -LiteralPath (Join-Path $PSScriptRoot '..')
     $locationPushed = $true
-    & (Join-Path $PSScriptRoot '..\gradlew.bat') :app:connectedCleanDebugAndroidTest `
+    $testStarted = $true
+    & (Join-Path $PSScriptRoot '..\gradlew.bat') :app:connectedCleanLocaltestAndroidTest -PlocalIntegration=true `
         '-Pandroid.testInstrumentationRunnerArguments.class=com.example.simplephotouploader.CookRealBackendIntegrationTest' `
         '-Pandroid.testInstrumentationRunnerArguments.isolatedCookBackend=1' --offline --no-daemon --max-workers=2
     if ($LASTEXITCODE -ne 0) { throw 'The isolated Android/backend test failed.' }
 } finally {
     if ($locationPushed) { Pop-Location }
+    if ($testStarted -and -not (Undo-Adb -Arguments @('shell', 'am', 'force-stop', 'com.example.photovchistotu.localtest'))) { $cleanupFailed = $true }
     if ($reverse -and -not (Undo-Adb -Arguments @('reverse', '--remove', 'tcp:18433'))) { $cleanupFailed = $true }
     if ($v6Local -and -not (Undo-Adb -Arguments @('shell', 'ip6tables', '-D', 'OUTPUT', '-o', 'lo', '-j', 'ACCEPT'))) { $cleanupFailed = $true }
     if ($v6Reject -and -not (Undo-Adb -Arguments @('shell', 'ip6tables', '-D', 'OUTPUT', '-j', 'REJECT'))) { $cleanupFailed = $true }

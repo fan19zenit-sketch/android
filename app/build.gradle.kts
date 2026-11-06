@@ -41,6 +41,12 @@ android {
             manifestPlaceholders["appLabel"] = "Фото в чистоту · Тест"
             matchingFallbacks += "debug"
         }
+        create("localtest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".localtest"
+            manifestPlaceholders["appLabel"] = "Фото в чистоту · Локальный тест"
+            matchingFallbacks += "debug"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -56,9 +62,11 @@ android {
         jvmTarget = "17"
     }
     buildFeatures { buildConfig = true }
-    if (providers.gradleProperty("offlineInstrumentation").orNull == "true") {
-        testBuildType = "preview"
-    }
+    val offlineInstrumentation = providers.gradleProperty("offlineInstrumentation").orNull == "true"
+    val localIntegration = providers.gradleProperty("localIntegration").orNull == "true"
+    require(!(offlineInstrumentation && localIntegration)) { "Choose only one isolated instrumentation mode" }
+    if (offlineInstrumentation) testBuildType = "preview"
+    if (localIntegration) testBuildType = "localtest"
 }
 
 dependencies {

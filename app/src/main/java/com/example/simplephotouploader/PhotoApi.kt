@@ -28,6 +28,10 @@ object PhotoApi {
         }.build()
 
     fun execute(request: Request, transport: OkHttpClient = client): Response {
+        if (BuildConfig.BUILD_TYPE == "localtest" &&
+            (request.url.scheme != "http" || request.url.host != "127.0.0.1" || request.url.port != 18433)) {
+            throw IOException("Local integration build only allows the isolated backend")
+        }
         val url = request.url.toString()
         val official = listOf(AppPrefs.DEFAULT_BACKEND_URL, ConnectionPolicy.RESERVE_API)
         val base = official.firstOrNull { url.startsWith("$it/") }

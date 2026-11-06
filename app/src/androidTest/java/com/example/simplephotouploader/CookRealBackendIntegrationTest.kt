@@ -5,7 +5,11 @@ import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.work.WorkManager
+import androidx.work.testing.TestListenableWorkerBuilder
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -16,13 +20,21 @@ import java.time.ZoneId
 import java.util.UUID
 import java.io.File
 import java.security.MessageDigest
+import java.io.IOException
 
 /** Opt-in only: requires the isolated loopback harness and a blocked external network. */
 @RunWith(AndroidJUnit4::class)
 class CookRealBackendIntegrationTest {
-    @Test fun twoDevicesKeepShiftsAndPhotoContextsSeparate() {
-        assumeTrue(BuildConfig.BUILD_TYPE == "debug" &&
+    @Test fun twoDevicesKeepShiftsAndPhotoContextsSeparate() = runBlocking {
+        assumeTrue(BuildConfig.BUILD_TYPE == "localtest" &&
             InstrumentationRegistry.getArguments().getString("isolatedCookBackend") == "1")
+        assertEquals("com.example.photovchistotu.localtest", BuildConfig.APPLICATION_ID)
+        try {
+            PhotoApi.execute(Request.Builder().url("https://example.invalid/cook-v2/capabilities").build())
+            fail("The isolated build must refuse external endpoints")
+        } catch (expected: IOException) {
+            assertTrue(expected.message.orEmpty().contains("only allows the isolated backend"))
+        }
         val base = "http://127.0.0.1:18433"
         val api = CookWorkflowClient(base)
         val a = "test-device-a"
@@ -107,6 +119,57 @@ class CookRealBackendIntegrationTest {
             }
             file.writeBytes(bytes + byteArrayOf(0))
             assertEquals(409, upload().first)
+            file.writeBytes(bytes)
+
+            val work = WorkManager.getInstance(context)
+            work.cancelAllWork().result.get()
+            val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
+            val oldBackend = prefs.getString(AppPrefs.KEY_BACKEND_URL, null)
+            val oldDevice = prefs.getString(AppPrefs.KEY_DEVICE_UUID, null)
+            prefs.edit().putString(AppPrefs.KEY_BACKEND_URL, base).putString(AppPrefs.KEY_DEVICE_UUID, a).commit()
+            val dao = PilotDatabase.get(context).photoRecordDao()
+            val recordId = PhotoHistoryStore.addQueued(context, file.absolutePath, now.toString(), photoA, a, base)
+            try {
+                TestListenableWorkerBuilder<PhotoUploadWorker>(context).build().doWork()
+                val blocked = requireNotNull(dao.getByPhotoPath(file.absolutePath))
+                assertNull(blocked.jobId)
+                assertEquals("retrying", blocked.status)
+                assertTrue(blocked.queuedInUploadQueue)
+                val before = Request.Builder().url("$base/fixture/upload/$recordId").build()
+                PhotoApi.execute(before).use { assertEquals(404, it.code) }
+
+                val enable = Request.Builder().url("$base/fixture/enable-capability")
+                    .post(ByteArray(0).toRequestBody()).build()
+                PhotoApi.execute(enable).use { response ->
+                    assertTrue(JSONObject(requireNotNull(response.body).string()).getBoolean("enabledForFixtureOnly"))
+                }
+                assertTrue(requireNotNull(api.capabilities()).photoContext)
+                TestListenableWorkerBuilder<PhotoUploadWorker>(context).build().doWork()
+                val uploaded = requireNotNull(dao.getByPhotoPath(file.absolutePath))
+                assertFalse(uploaded.jobId.isNullOrBlank())
+                assertFalse(uploaded.queuedInUploadQueue)
+                assertEquals("resolved", uploaded.photoContextAck)
+                val inspection = Request.Builder().url("$base/fixture/upload/$recordId").build()
+                PhotoApi.execute(inspection).use { response ->
+                    assertEquals(200, response.code)
+                    val saved = JSONObject(requireNotNull(response.body).string())
+                    assertEquals(uploaded.jobId, saved.getString("jobId"))
+                    assertEquals(sha256, saved.getString("sha256"))
+                    assertEquals("uploaded_to_server", saved.getString("status"))
+                    assertEquals(2, saved.getInt("queued"))
+                }
+                TestListenableWorkerBuilder<PhotoUploadWorker>(context).build().doWork()
+                PhotoApi.execute(inspection).use { response ->
+                    assertEquals(2, JSONObject(requireNotNull(response.body).string()).getInt("queued"))
+                }
+            } finally {
+                work.cancelAllWork().result.get()
+                PhotoHistoryStore.removeByPhotoPath(context, file.absolutePath)
+                prefs.edit().apply {
+                    if (oldBackend == null) remove(AppPrefs.KEY_BACKEND_URL) else putString(AppPrefs.KEY_BACKEND_URL, oldBackend)
+                    if (oldDevice == null) remove(AppPrefs.KEY_DEVICE_UUID) else putString(AppPrefs.KEY_DEVICE_UUID, oldDevice)
+                }.commit()
+            }
         } finally {
             file.delete()
         }
