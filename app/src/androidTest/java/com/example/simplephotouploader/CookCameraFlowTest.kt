@@ -3,17 +3,15 @@ package com.example.simplephotouploader
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
-import android.widget.HorizontalScrollView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
-import androidx.test.espresso.action.ViewActions.swipeLeft
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isEnabled
-import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -141,9 +139,7 @@ class CookCameraFlowTest {
             await { visible("У сотрудников одинаковые имена. Уточните имена в справочнике или выберите «Автор неизвестен».") }
             SystemClock.sleep(500)
             assertEquals(0, dao.getAllHistory().count { it.id !in existing })
-            onView(withText("Понятно")).perform(click())
-            onView(isAssignableFrom(HorizontalScrollView::class.java)).perform(swipeLeft())
-            onView(withText("Автор неизвестен")).perform(click())
+            onView(withText("Автор неизвестен")).inRoot(isDialog()).perform(click())
             onView(withId(R.id.captureButton)).perform(click())
             await { dao.getAllHistory().count { it.id !in existing } == 1 }
             val photo = dao.getAllHistory().single { it.id !in existing }

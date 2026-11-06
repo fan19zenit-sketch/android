@@ -343,7 +343,11 @@ class MainActivity : AppCompatActivity() {
     private fun showAmbiguousCook() {
         if (!isFinishing && !isDestroyed) AlertDialog.Builder(this)
             .setMessage("У сотрудников одинаковые имена. Уточните имена в справочнике или выберите «Автор неизвестен».")
-            .setPositiveButton("Понятно", null).show()
+            .setPositiveButton("Автор неизвестен") { _, _ ->
+                cookSelection.selectUnassigned("explicit_unknown")
+                refreshCookPanel()
+            }
+            .setNegativeButton(R.string.close, null).show()
     }
 
     private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java))
