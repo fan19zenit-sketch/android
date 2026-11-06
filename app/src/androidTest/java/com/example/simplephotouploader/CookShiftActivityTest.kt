@@ -249,4 +249,59 @@ class CookShiftActivityTest {
             assertTrue("First offline shift was not restored", restored)
         }
     }
+
+    @Test fun syncedNewcomerCanBeConfirmedOfflineOnFollowingDay() {
+        val binding = CookBinding("preview", 1, "Europe/Moscow")
+        val scope = CookLocalSession.offlineScope(context, binding)
+        val database = CookOfflineDatabase.get(context)
+        val dao = database.queue()
+        val provisional = UUID.randomUUID().toString()
+        val canonical = "test-${UUID.randomUUID()}"
+        val name = "Новый ${UUID.randomUUID().toString().take(8)}"
+        val now = Instant.now().atZone(ZoneId.of(binding.timezone))
+        val previous = CachedCookShift(binding, CookShift("previous", 1, binding.branchRef,
+            now.minusDays(1).toLocalDate().toString(), binding.timezone!!,
+            now.minusDays(1).toOffsetDateTime().toString(), listOf(canonical), listOf("operator-1"), canonical),
+            listOf(CookEmployee(canonical, name, listOf("cook")),
+                CookEmployee("operator-1", "Оператор 1", listOf("operator"))))
+        var createdShift: String? = null
+        try {
+            dao.enqueueEmployee(OfflineCookEmployee(scope.backendUrl, scope.deviceUuid, binding.branchRef,
+                binding.revision, provisional, UUID.randomUUID().toString(), name, "[\"cook\"]"))
+            dao.confirmEmployee(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision, provisional, canonical)
+            assertTrue(CookLocalSession.cache(context).save(previous))
+            val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_offline", true)
+            ActivityScenario.launch<CookShiftActivity>(intent).use {
+                val deadline = SystemClock.elapsedRealtime() + 15_000
+                var shown = false
+                while (!shown && SystemClock.elapsedRealtime() < deadline) {
+                    try {
+                        onView(allOf(withText(name), isAssignableFrom(CheckBox::class.java)))
+                            .check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                                androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+                        shown = true
+                    } catch (_: androidx.test.espresso.NoMatchingViewException) { SystemClock.sleep(100) }
+                }
+                assertTrue("Synced employee was not restored", shown)
+                onView(withText("Подтвердить смену")).perform(scrollTo(), click())
+                val cache = CookOfflineSelectionCache(CookLocalSession.preferences(context), dao, scope)
+                var active = cache.load()
+                while (active == null && SystemClock.elapsedRealtime() < deadline) {
+                    SystemClock.sleep(100)
+                    active = cache.load()
+                }
+                assertNotNull(active)
+                createdShift = active!!.offlineShift!!.provisionalId
+                assertEquals(now.toLocalDate().toString(), active.shift.operationalDate)
+                assertEquals(listOf(canonical), active.shift.cooks)
+                assertEquals(canonical, active.shift.mainCookId)
+                assertEquals("employee", CookOfflineSelectionCache.cookRef(active.offlineShift!!, canonical).kind)
+                assertEquals(previous, CookLocalSession.cache(context).load())
+            }
+        } finally {
+            val db = database.openHelper.writableDatabase
+            db.execSQL("DELETE FROM offline_employees WHERE provisionalId=?", arrayOf(provisional))
+            createdShift?.let { db.execSQL("DELETE FROM offline_shifts WHERE provisionalId=?", arrayOf(it)) }
+        }
+    }
 }
