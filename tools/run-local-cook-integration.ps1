@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$BackendRepo,
-    [Parameter(Mandatory = $true)][string]$Emulator
+    [Parameter(Mandatory = $true)][string]$Emulator,
+    [switch]$Background
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,6 +46,24 @@ function Undo-Adb {
     }
     return $true
 }
+function Invoke-IntegrationTest {
+    param([string]$ClassName)
+    & (Join-Path $PSScriptRoot '..\gradlew.bat') :app:connectedCleanLocaltestAndroidTest -PlocalIntegration=true `
+        "-Pandroid.testInstrumentationRunnerArguments.class=$ClassName" `
+        '-Pandroid.testInstrumentationRunnerArguments.isolatedCookBackend=1' --offline --no-daemon --max-workers=2
+    if ($LASTEXITCODE -ne 0) { throw 'The isolated Android/backend test failed.' }
+}
+function Invoke-InstalledIntegrationTest {
+    param([string]$ClassName)
+    $output = & $adb -s $Emulator shell am instrument -w -e class $ClassName -e isolatedCookBackend 1 `
+        'com.example.photovchistotu.localtest.test/androidx.test.runner.AndroidJUnitRunner' 2>&1
+    $status = $LASTEXITCODE
+    $text = $output | Out-String
+    Write-Host $text
+    if ($status -ne 0 -or $text -notmatch 'OK \(1 test\)' -or $text -match 'INSTRUMENTATION_STATUS_CODE: -3') {
+        throw 'The isolated installed-app test failed or was skipped.'
+    }
+}
 
 try {
     $python = (Get-Command python -ErrorAction Stop).Source
@@ -72,10 +91,42 @@ try {
     Push-Location -LiteralPath (Join-Path $PSScriptRoot '..')
     $locationPushed = $true
     $testStarted = $true
-    & (Join-Path $PSScriptRoot '..\gradlew.bat') :app:connectedCleanLocaltestAndroidTest -PlocalIntegration=true `
-        '-Pandroid.testInstrumentationRunnerArguments.class=com.example.simplephotouploader.CookRealBackendIntegrationTest' `
-        '-Pandroid.testInstrumentationRunnerArguments.isolatedCookBackend=1' --offline --no-daemon --max-workers=2
-    if ($LASTEXITCODE -ne 0) { throw 'The isolated Android/backend test failed.' }
+    if (-not $Background) {
+        Invoke-IntegrationTest 'com.example.simplephotouploader.CookRealBackendIntegrationTest'
+    } else {
+        & (Join-Path $PSScriptRoot '..\gradlew.bat') :app:assembleCleanLocaltest :app:assembleCleanLocaltestAndroidTest `
+            -PlocalIntegration=true --offline --no-daemon --max-workers=2
+        if ($LASTEXITCODE -ne 0) { throw 'The isolated test APKs could not be built.' }
+        $appApk = Join-Path $PSScriptRoot '..\app\build\outputs\apk\clean\localtest\app-clean-localtest.apk'
+        $testApk = Join-Path $PSScriptRoot '..\app\build\outputs\apk\androidTest\clean\localtest\app-clean-localtest-androidTest.apk'
+        if (-not (Test-Path -LiteralPath $appApk) -or -not (Test-Path -LiteralPath $testApk)) { throw 'The isolated test APKs are missing.' }
+        Invoke-AdbChecked -Arguments @('install', '-r', $appApk)
+        Invoke-AdbChecked -Arguments @('install', '-r', $testApk)
+        Invoke-InstalledIntegrationTest 'com.example.simplephotouploader.CookBackgroundIntegrationTest#seed'
+        $seed = Invoke-RestMethod -Uri 'http://127.0.0.1:18433/fixture/background-pid' -TimeoutSec 3
+        if (-not $seed.pid -or $seed.pid -lt 1) { throw 'The fixture did not record the test process.' }
+        $current = (& $adb -s $Emulator shell pidof com.example.photovchistotu.localtest 2>$null | Out-String).Trim()
+        if ($current) {
+            Invoke-AdbChecked -Arguments @('shell', 'am', 'kill', 'com.example.photovchistotu.localtest')
+            Start-Sleep -Seconds 1
+            $current = (& $adb -s $Emulator shell pidof com.example.photovchistotu.localtest 2>$null | Out-String).Trim()
+            if ($current) { throw 'The test process did not stop; background recovery was not verified.' }
+        }
+        Write-Host "Isolated app process $($seed.pid) is stopped; waiting for Android to restart queued work."
+        Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18433/fixture/enable-capability' -TimeoutSec 3 | Out-Null
+        $uploadUrl = 'http://127.0.0.1:18433/fixture/upload/99999999-9999-4999-8999-999999999999'
+        $deadline = [datetime]::UtcNow.AddSeconds(180)
+        $received = $false
+        while ([datetime]::UtcNow -lt $deadline -and -not $received) {
+            try {
+                $result = Invoke-RestMethod -Uri $uploadUrl -TimeoutSec 3
+                $received = $result.status -eq 'uploaded_to_server' -and $result.queued -eq 1
+            } catch { Start-Sleep -Seconds 2 }
+            if (-not $received) { Start-Sleep -Seconds 2 }
+        }
+        if (-not $received) { throw 'Android did not resume the queued upload within the test window.' }
+        Invoke-InstalledIntegrationTest 'com.example.simplephotouploader.CookBackgroundIntegrationTest#verify'
+    }
 } finally {
     if ($locationPushed) { Pop-Location }
     if ($testStarted -and -not (Undo-Adb -Arguments @('shell', 'am', 'force-stop', 'com.example.photovchistotu.localtest'))) { $cleanupFailed = $true }
