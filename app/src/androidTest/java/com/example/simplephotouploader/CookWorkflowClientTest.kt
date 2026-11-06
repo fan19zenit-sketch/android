@@ -10,6 +10,7 @@ import okio.Buffer
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 
 @RunWith(AndroidJUnit4::class)
 class CookWorkflowClientTest {
@@ -100,5 +101,58 @@ class CookWorkflowClientTest {
             response(request, 200, """{"branchRef":"a","bindingRevision":2}""")
         }
         assertEquals(CookBinding("a", 2), client.initializeBinding("device-a"))
+    }
+
+    @Test fun provisionalEmployeeRequiresExplicitMatchingAcknowledgement() {
+        val provisional = "11111111-1111-4111-8111-111111111111"
+        var acknowledgement = true
+        val client = CookWorkflowClient("https://example.test") { request ->
+            val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+            assertEquals(provisional, body.getString("provisionalEmployeeId"))
+            assertEquals("a", body.getString("branchRef"))
+            assertEquals(2, body.getInt("bindingRevision"))
+            val result = JSONObject().put("employeeId", "canonical").put("displayName", "Повар")
+                .put("roles", org.json.JSONArray(listOf("cook"))).put("branchRef", "a")
+            if (acknowledgement) result.put("provisionalEmployeeId", provisional).put("bindingRevision", 2)
+            response(request, 200, result.toString())
+        }
+        val binding = CookBinding("a", 2)
+        assertEquals("canonical", client.addManual("device", "request", "Повар", listOf("cook"), binding, provisional)!!.id)
+        acknowledgement = false
+        try {
+            client.addManual("device", "request", "Повар", listOf("cook"), binding, provisional)
+            fail("A 2xx from an old server must not acknowledge the mapping")
+        } catch (_: IOException) { }
+        try {
+            client.addManual("device", "request", "Повар", listOf("cook"), null, provisional)
+            fail("A provisional identity requires a binding")
+        } catch (_: IllegalArgumentException) { }
+    }
+
+    @Test fun provisionalShiftRequiresMatchingBindingAndShiftIdentity() {
+        val provisional = "22222222-2222-4222-8222-222222222222"
+        var returnedShift = "shift-1"
+        var returnedRevision = 2
+        val client = CookWorkflowClient("https://example.test") { request ->
+            val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+            assertEquals(provisional, body.getString("provisionalShiftId"))
+            response(request, 200, JSONObject().put("shiftId", returnedShift).put("shiftRevision", 1)
+                .put("branchRef", "a").put("bindingRevision", returnedRevision).put("provisionalShiftId", provisional).toString())
+        }
+        val shift = CookShift("shift-1", 1, "a", "2026-11-05", "Europe/Moscow",
+            "2026-11-05T11:00:00+03:00", listOf("cook"), listOf("operator"), "cook")
+        val binding = CookBinding("a", 2)
+        assertEquals("shift-1" to 1, client.confirmShift("device", "request", shift, binding, provisional))
+        returnedShift = "different"
+        try {
+            client.confirmShift("device", "request", shift, binding, provisional)
+            fail("A different shift must not be accepted")
+        } catch (_: IOException) { }
+        returnedShift = "shift-1"
+        returnedRevision = 3
+        try {
+            client.confirmShift("device", "request", shift, binding, provisional)
+            fail("A changed binding must not be accepted")
+        } catch (_: IOException) { }
     }
 }

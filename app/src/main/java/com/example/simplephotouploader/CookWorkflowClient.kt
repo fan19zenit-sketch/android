@@ -1,6 +1,7 @@
 package com.example.simplephotouploader
 
 import java.io.IOException
+import java.util.UUID
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -65,23 +66,53 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         })
     }
 
-    fun addManual(deviceId: String, requestId: String, name: String, roles: List<String>, binding: CookBinding? = null): CookEmployee? =
-        request("employees/manual", body = JSONObject().put("deviceUuid", deviceId).put("requestId", requestId)
+    private fun validateProvisional(id: String?, binding: CookBinding?) {
+        if (id == null) return
+        requireNotNull(binding) { "Provisional identity requires a binding" }
+        require(UUID.fromString(id).toString() == id) { "Invalid provisional identity" }
+    }
+
+    private fun requireProvisionalAck(json: JSONObject, key: String, id: String?, binding: CookBinding?) {
+        if (id == null) return
+        if (binding == null || json.optString(key) != id || json.optString("branchRef") != binding.branchRef
+            || json.opt("bindingRevision") != binding.revision) throw IOException("Provisional mapping was not acknowledged")
+    }
+
+    fun addManual(deviceId: String, requestId: String, name: String, roles: List<String>, binding: CookBinding? = null,
+                  provisionalEmployeeId: String? = null): CookEmployee? {
+        validateProvisional(provisionalEmployeeId, binding)
+        return request("employees/manual", body = JSONObject().put("deviceUuid", deviceId).put("requestId", requestId)
             .put("displayName", name).put("roles", JSONArray(roles)).apply {
                 if (binding != null) put("branchRef", binding.branchRef).put("bindingRevision", binding.revision)
+                if (provisionalEmployeeId != null) put("provisionalEmployeeId", provisionalEmployeeId)
             })?.let {
-            CookEmployee(it.getString("employeeId"), it.getString("displayName"), strings(it.getJSONArray("roles")))
+            requireProvisionalAck(it, "provisionalEmployeeId", provisionalEmployeeId, binding)
+            val employee = CookEmployee(it.getString("employeeId"), it.getString("displayName"), strings(it.getJSONArray("roles")))
+            if (provisionalEmployeeId != null && (employee.id.isBlank() || employee.roles.toSet() != roles.toSet()
+                    || employee.displayName != name.trim().replace(Regex("\\s+"), " ")))
+                throw IOException("Provisional employee response conflicts with request")
+            employee
         }
+    }
 
-    fun confirmShift(deviceId: String, requestId: String, shift: CookShift, binding: CookBinding? = null): Pair<String, Int>? =
-        request("shifts", body = JSONObject().put("deviceUuid", deviceId).put("requestId", requestId)
+    fun confirmShift(deviceId: String, requestId: String, shift: CookShift, binding: CookBinding? = null,
+                     provisionalShiftId: String? = null): Pair<String, Int>? {
+        validateProvisional(provisionalShiftId, binding)
+        return request("shifts", body = JSONObject().put("deviceUuid", deviceId).put("requestId", requestId)
             .put("shiftId", shift.id).put("operationalDate", shift.operationalDate).put("timezone", shift.timezone)
             .put("confirmedAt", shift.confirmedAt).put("cooks", JSONArray(shift.cooks))
             .put("operators", JSONArray(shift.operators)).put("mainCookId", shift.mainCookId).apply {
                 if (binding != null) put("branchRef", binding.branchRef).put("bindingRevision", binding.revision)
+                if (provisionalShiftId != null) put("provisionalShiftId", provisionalShiftId)
             })?.let {
-            it.getString("shiftId") to it.getInt("shiftRevision")
+            requireProvisionalAck(it, "provisionalShiftId", provisionalShiftId, binding)
+            val returnedId = it.getString("shiftId")
+            val revision = it.getInt("shiftRevision")
+            if (provisionalShiftId != null && (returnedId != shift.id || revision < 1))
+                throw IOException("Provisional shift response conflicts with request")
+            returnedId to revision
         }
+    }
 
     fun shifts(deviceId: String, day: String): List<CookShift>? =
         request("shifts", mapOf("deviceUuid" to deviceId, "operationalDate" to day))?.let { json ->
