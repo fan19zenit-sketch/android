@@ -17,6 +17,16 @@ class QueueRetryWorker(context: Context, params: WorkerParameters) : Worker(cont
     }
 
     companion object {
+        fun scheduleReview(context: Context): Operation =
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "photo-uncertain-status-kick", ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequestBuilder<QueueRetryWorker>()
+                    .setInputData(workDataOf("sync" to true))
+                    .setInitialDelay(1, TimeUnit.HOURS)
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .build()
+            )
+
         fun schedule(context: Context, sync: Boolean): Operation =
             WorkManager.getInstance(context).enqueueUniqueWork(
                 if (sync) "photo-status-retry-kick" else "photo-upload-retry-kick",

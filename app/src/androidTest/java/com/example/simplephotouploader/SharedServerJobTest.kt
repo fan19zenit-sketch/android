@@ -9,6 +9,25 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SharedServerJobTest {
+    @Test fun unknownDeliveryRequiresReviewAndCannotBeRetriedAsLocalPhoto() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        val path = "/test/unknown-outcome.jpg"
+        val job = "unknown-delivery-job"
+        try {
+            dao.insert(PhotoRecordEntity("unknown-delivery", job, null, false, path, null,
+                "2026-11-06T12:00:00Z", null, "sending_to_chat", null, false))
+            PhotoHistoryStore.syncStatuses(context, listOf(mapOf("job_id" to job, "status" to "failed",
+                "delivery_outcome" to "unknown", "error" to "Проверьте чат")))
+            assertEquals("delivery_unknown", dao.getByPhotoPath(path)!!.status)
+            assertEquals(0, dao.retryLocal(path))
+            assertEquals(job, dao.getByPhotoPath(path)!!.jobId)
+            assertTrue(dao.getPendingServerRecords().any { it.jobId == job })
+            PhotoHistoryStore.syncStatuses(context, listOf(mapOf("job_id" to job, "status" to "sent", "message_id" to "mid")))
+            assertEquals("sent", dao.getByPhotoPath(path)!!.status)
+        } finally { dao.deleteByPhotoPath(path) }
+    }
+
     @Test fun serverDeduplicationUpdatesEveryLocalReference() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dao = PilotDatabase.get(context).photoRecordDao()

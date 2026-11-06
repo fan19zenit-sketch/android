@@ -65,6 +65,9 @@ class HistoryAdapter(
                 item.error != null -> item.error
                 else -> itemView.context.getString(R.string.history_waiting)
             }
+            if (item.photoContextAck == "conflict") {
+                subtitle.text = "${subtitle.text}\n${itemView.context.getString(R.string.history_cook_context_conflict)}"
+            }
 
             status.text = when (item.status) {
                 "sent" -> if (item.chatDeleted) {
@@ -79,6 +82,7 @@ class HistoryAdapter(
                 "retrying" -> itemView.context.getString(R.string.history_status_retrying)
                 "error" -> itemView.context.getString(R.string.history_status_error)
                 "needs_review" -> itemView.context.getString(R.string.history_needs_review)
+                "delivery_unknown" -> itemView.context.getString(R.string.history_needs_review)
                 else -> item.status
             }
 
@@ -103,7 +107,7 @@ class HistoryAdapter(
             retryButton?.setOnClickListener { onRetry(item) }
             status.setTextColor(android.graphics.Color.parseColor(when {
                 item.status == "sent" && !item.chatDeleted -> "#25745B"
-                item.status in setOf("error", "needs_review") -> "#B33C4A"
+                item.status in setOf("error", "needs_review", "delivery_unknown") -> "#B33C4A"
                 else -> "#765725"
             }))
             itemView.setOnClickListener {

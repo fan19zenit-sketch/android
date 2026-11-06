@@ -234,5 +234,5 @@ class Store:
             db.execute("INSERT INTO audit VALUES (?,?,?,?)", (int(self.clock()), "reset", device, "{}"))
 
     def backup(self, destination):
-        with self.db() as source, sqlite3.connect(destination) as target:
+        with self.db() as source, contextlib.closing(sqlite3.connect(destination)) as target:
             source.backup(target)

@@ -19,7 +19,13 @@ object PhotoContextSynchronizer {
         for (item in dao.getPendingPhotoContexts()) {
             if (!eligible(item)) continue
             val snapshot = item.photoContext ?: continue
-            val resolution = send(item)
+            val resolution = try {
+                send(item)
+            } catch (error: CookApiHttpException) {
+                if (error.status != 409) throw error
+                dao.markPhotoContextConflict(item.id, snapshot)
+                continue
+            }
             if (resolution !in setOf("resolved", "unresolved", "not_applicable")) {
                 throw IOException("Invalid photo context acknowledgement")
             }

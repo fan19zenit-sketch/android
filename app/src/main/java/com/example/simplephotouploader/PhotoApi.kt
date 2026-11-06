@@ -33,7 +33,7 @@ object PhotoApi {
         val base = official.firstOrNull { url.startsWith("$it/") }
         val operation = when {
             request.url.encodedPath.endsWith("/register-device") -> "registration"
-            request.url.encodedPath.endsWith("/upload-v2") -> "upload"
+            request.url.encodedPath.endsWith("/upload-v2") || request.url.encodedPath.endsWith("/cook-v2/upload") -> "upload"
             request.method == "DELETE" -> "delete"
             else -> "status"
         }

@@ -8,7 +8,24 @@
     handle_path /mobile-api/* {
         @mobile_post {
             method POST
-            path /register-device /upload-v2
+            path /register-device /upload-v2 /cook-v2/upload /cook-v2/binding/initialize /cook-v2/employees/manual /cook-v2/shifts
+        }
+        @cook_get {
+            method GET
+            path /cook-v2/capabilities /cook-v2/binding /cook-v2/employees /cook-v2/shifts
+        }
+        handle @cook_get {
+            reverse_proxy 127.0.0.1:8000
+        }
+        @cook_put {
+            method PUT
+            path /cook-v2/photo-context
+        }
+        handle @cook_put {
+            request_body {
+                max_size 64KB
+            }
+            reverse_proxy 127.0.0.1:8000
         }
         handle @mobile_post {
             request_body {

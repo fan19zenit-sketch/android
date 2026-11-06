@@ -191,4 +191,44 @@ class QueueDatabaseTest {
             assertEquals("job-two", dao.getByPhotoPath("/two")!!.jobId)
         }
     }
+
+    @Test fun conflictDoesNotBlockFollowingPhotoOrChangeDelivery() {
+        Room.inMemoryDatabaseBuilder(context, PilotDatabase::class.java).build().use { db ->
+            val dao = db.photoRecordDao()
+            dao.insert(record().copy(id = "one", photoPath = "/one", jobId = "job-one", status = "sent",
+                queuedInUploadQueue = false, photoContext = "first"))
+            dao.insert(record().copy(id = "two", photoPath = "/two", jobId = "job-two", status = "sent",
+                queuedInUploadQueue = false, photoContext = "second", capturedAt = "2026-09-04T14:01:00Z"))
+            val calls = mutableListOf<String>()
+            PhotoContextSynchronizer.sync(dao) { item ->
+                calls.add(item.id)
+                if (item.id == "one") throw CookApiHttpException(409)
+                "resolved"
+            }
+            assertEquals(listOf("one", "two"), calls)
+            val first = dao.getByPhotoPath("/one")!!
+            assertEquals("conflict", first.photoContextAck)
+            assertEquals("first", first.photoContext)
+            assertEquals("sent", first.status)
+            assertEquals("job-one", first.jobId)
+            assertEquals("resolved", dao.getByPhotoPath("/two")!!.photoContextAck)
+            assertTrue(dao.getPendingPhotoContexts().isEmpty())
+            PhotoContextSynchronizer.sync(dao) { fail("Conflict must not be retried automatically"); "resolved" }
+        }
+    }
+
+    @Test fun temporaryHttpFailureKeepsMetadataPending() {
+        for (status in listOf(408, 429, 500, 503)) {
+            Room.inMemoryDatabaseBuilder(context, PilotDatabase::class.java).build().use { db ->
+                val dao = db.photoRecordDao()
+                dao.insert(record().copy(jobId = "job", photoContext = "snapshot"))
+                try {
+                    PhotoContextSynchronizer.sync(dao) { throw CookApiHttpException(status) }
+                    fail("Temporary HTTP $status must be retried")
+                } catch (error: CookApiHttpException) { assertEquals(status, error.status) }
+                assertNull(dao.getByPhotoPath(record().photoPath)!!.photoContextAck)
+                assertEquals(1, dao.getPendingPhotoContexts().size)
+            }
+        }
+    }
 }

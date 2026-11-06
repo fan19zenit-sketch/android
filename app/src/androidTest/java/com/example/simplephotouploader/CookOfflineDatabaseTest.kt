@@ -92,6 +92,16 @@ class CookOfflineDatabaseTest {
         assertTrue(dao.pendingEmployees("https://other.test", first.deviceUuid, first.branchRef, 1).isEmpty())
     }
 
+    @Test fun confirmedNewcomerRemainsAvailableOnlyForItsDeviceAndBinding() {
+        val person = employee()
+        dao.enqueueEmployee(person)
+        dao.confirmEmployee(person.backendUrl, person.deviceUuid, person.branchRef, 1, person.provisionalId, "canonical-cook")
+        assertTrue(dao.pendingEmployees(person.backendUrl, person.deviceUuid, person.branchRef, 1).isEmpty())
+        assertEquals("canonical-cook", dao.confirmedEmployees(person.backendUrl, person.deviceUuid, person.branchRef, 1).single().canonicalId)
+        assertTrue(dao.confirmedEmployees(person.backendUrl, "another-device", person.branchRef, 1).isEmpty())
+        assertTrue(dao.confirmedEmployees(person.backendUrl, person.deviceUuid, person.branchRef, 2).isEmpty())
+    }
+
     @Test fun identicalNamesRequireDisambiguation() {
         val first = CookEmployee("a", "Повар", listOf("cook"))
         val second = CookEmployee("b", "  ПОВАР  ", listOf("cook"))

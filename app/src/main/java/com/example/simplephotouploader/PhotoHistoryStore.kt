@@ -26,6 +26,7 @@ object PhotoHistoryStore {
         val status: String,
         val error: String?,
         val queuedInUploadQueue: Boolean,
+        val photoContextAck: String? = null,
     )
 
     fun addQueued(
@@ -135,7 +136,7 @@ object PhotoHistoryStore {
                         "uploaded_to_server" -> "uploaded_to_server"
                         "sending_to_chat" -> "sending_to_chat"
                         "sent" -> "sent"
-                        "failed" -> "error"
+                        "failed" -> if (job["delivery_outcome"] == "unknown") "delivery_unknown" else "error"
                         else -> item.status
                     }
                     dao.update(item.copy(
@@ -255,6 +256,7 @@ object PhotoHistoryStore {
             status = entity.status,
             error = entity.error,
             queuedInUploadQueue = entity.queuedInUploadQueue,
+            photoContextAck = entity.photoContextAck,
         )
     }
 }

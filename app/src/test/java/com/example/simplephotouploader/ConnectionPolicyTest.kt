@@ -26,4 +26,24 @@ class ConnectionPolicyTest {
         assertEquals("response_timeout", ConnectionPolicy.error(SocketTimeoutException(), "response"))
         assertFalse(ConnectionPolicy.message("tls_failed", "01234567").contains("secret"))
     }
+
+    @Test fun cookRoutesFailOverOnlyForKnownMethodAndQuery() {
+        val primary = AppPrefs.DEFAULT_BACKEND_URL
+        val reserve = ConnectionPolicy.RESERVE_API
+        val routes = listOf(
+            "GET" to "/cook-v2/capabilities", "GET" to "/cook-v2/binding?deviceUuid=device-a",
+            "GET" to "/cook-v2/employees?deviceUuid=device-a",
+            "GET" to "/cook-v2/shifts?deviceUuid=device-a&operationalDate=2026-11-06",
+            "POST" to "/cook-v2/binding/initialize", "POST" to "/cook-v2/employees/manual",
+            "POST" to "/cook-v2/shifts", "POST" to "/cook-v2/upload", "PUT" to "/cook-v2/photo-context")
+        routes.forEach { (method, path) ->
+            assertEquals(listOf("$primary$path", "$reserve$path"), ConnectionPolicy.apiAddresses("$primary$path", method))
+            assertEquals(listOf("$reserve$path", "$primary$path"), ConnectionPolicy.apiAddresses("$reserve$path", method))
+        }
+        for ((method, path) in listOf("POST" to "/cook-v2/photo-context", "DELETE" to "/cook-v2/shifts",
+            "GET" to "/cook-v2/employees?deviceUuid=a&token=secret",
+            "GET" to "/cook-v2/binding?deviceUuid=a&deviceUuid=b", "GET" to "/cook-v2/admin?deviceUuid=a")) {
+            assertEquals(listOf("$primary$path"), ConnectionPolicy.apiAddresses("$primary$path", method))
+        }
+    }
 }

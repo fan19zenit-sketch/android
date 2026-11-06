@@ -77,6 +77,10 @@ abstract class CookOfflineDao {
         AND branchRef=:branch AND bindingRevision=:revision AND canonicalId IS NULL ORDER BY rowid""")
     abstract fun pendingEmployees(backend: String, device: String, branch: String, revision: Int): List<OfflineCookEmployee>
 
+    @Query("""SELECT * FROM offline_employees WHERE backendUrl=:backend AND deviceUuid=:device
+        AND branchRef=:branch AND bindingRevision=:revision AND canonicalId IS NOT NULL ORDER BY rowid""")
+    abstract fun confirmedEmployees(backend: String, device: String, branch: String, revision: Int): List<OfflineCookEmployee>
+
     @Query("""SELECT * FROM offline_shifts WHERE backendUrl=:backend AND deviceUuid=:device
         AND branchRef=:branch AND bindingRevision=:revision AND canonicalRevision IS NULL ORDER BY rowid""")
     abstract fun pendingShifts(backend: String, device: String, branch: String, revision: Int): List<OfflineCookShift>

@@ -6,6 +6,7 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLPeerUnverifiedException
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 object ConnectionPolicy {
     const val RESERVE_API = "https://app.sushigohub.ru/photo-api"
@@ -15,11 +16,24 @@ object ConnectionPolicy {
         val bases = listOf(AppPrefs.DEFAULT_BACKEND_URL, RESERVE_API)
         val base = bases.firstOrNull { url.startsWith("$it/") } ?: return listOf(url)
         val suffix = url.removePrefix(base)
+        val path = suffix.substringBefore('?')
+        val parsed = url.toHttpUrlOrNull() ?: return listOf(url)
+        val expectedQuery = when (path) {
+            "/cook-v2/employees", "/cook-v2/binding" -> setOf("deviceUuid")
+            "/cook-v2/shifts" -> setOf("deviceUuid", "operationalDate")
+            else -> emptySet()
+        }
+        val queryAllowed = if (method == "GET" && expectedQuery.isNotEmpty())
+            parsed.queryParameterNames == expectedQuery && expectedQuery.all { parsed.queryParameterValues(it).size == 1 }
+        else parsed.query == null
         val job = "/upload-jobs/[0-9a-fA-F-]{36}"
-        val allowed = when (method) {
-            "POST" -> suffix in setOf("/register-device", "/upload-v2")
-            "GET" -> Regex(job).matches(suffix)
-            "DELETE" -> Regex("$job/chat-message").matches(suffix)
+        val allowed = queryAllowed && when (method) {
+            "POST" -> path in setOf("/register-device", "/upload-v2", "/cook-v2/upload",
+                "/cook-v2/binding/initialize", "/cook-v2/employees/manual", "/cook-v2/shifts")
+            "GET" -> Regex(job).matches(path) || path in setOf("/cook-v2/capabilities", "/cook-v2/binding",
+                "/cook-v2/employees", "/cook-v2/shifts")
+            "PUT" -> path == "/cook-v2/photo-context"
+            "DELETE" -> Regex("$job/chat-message").matches(path)
             else -> false
         }
         return if (allowed) listOf(url, bases.first { it != base } + suffix) else listOf(url)

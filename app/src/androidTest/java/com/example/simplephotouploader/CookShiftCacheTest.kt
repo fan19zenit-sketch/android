@@ -45,4 +45,18 @@ class CookShiftCacheTest {
         prefs.edit().putString("confirmed_shift_v1", "invalid").commit()
         assertNull(cache.load())
     }
+
+    @Test fun deviceBindingAndRosterSurviveWithoutAnyConfirmedShift() {
+        val device = CookDeviceRosterCache(prefs)
+        val verified = CookBinding("branch", 1, "Europe/Moscow")
+        assertTrue(device.save(verified, listOf(cook, operator)))
+        assertNull(cache.load())
+        assertEquals(CookDeviceRosterCache.Snapshot(verified, listOf(cook, operator)), CookDeviceRosterCache(prefs).load())
+        assertTrue(device.saveBinding(verified))
+        assertEquals(listOf(cook, operator), device.load()!!.employees)
+        assertTrue(device.saveBinding(verified.copy(revision = 2)))
+        assertEquals(emptyList<CookEmployee>(), device.load()!!.employees)
+        prefs.edit().putString(CookDeviceRosterCache.KEY, "corrupted").commit()
+        assertNull(device.load())
+    }
 }

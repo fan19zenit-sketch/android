@@ -94,7 +94,7 @@ class HistoryActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.tvHistorySubheader)?.text = getString(R.string.history_summary,
                 items.count { it.status == "sent" && !it.chatDeleted },
                 items.count { it.queuedInUploadQueue || it.status in setOf("uploaded_to_server", "sending_to_chat") },
-                items.count { it.status in setOf("error", "needs_review") })
+                items.count { it.status in setOf("error", "needs_review", "delivery_unknown") })
         }
     }
 

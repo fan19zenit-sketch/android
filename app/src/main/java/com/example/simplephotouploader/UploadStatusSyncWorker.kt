@@ -40,7 +40,7 @@ class UploadStatusSyncWorker(context: Context, params: WorkerParameters) : Corou
                             val payload = JSONObject(response.body?.string().orEmpty())
                             val job = payload.optJSONObject("job") ?: payload
                             if (job.optString("job_id") != item.jobId) throw IOException("Unexpected server job")
-                            val values = listOf("job_id", "status", "sent_at", "error", "message_id", "chat_deleted")
+                            val values = listOf("job_id", "status", "sent_at", "error", "message_id", "chat_deleted", "delivery_outcome")
                                 .associateWith { key -> job.optString(key).takeIf { it.isNotBlank() && it != "null" } }
                             PhotoHistoryStore.syncStatuses(applicationContext, listOf(values))
                         } else if (UploadPolicy.retryableHttp(response.code)) {
@@ -56,8 +56,11 @@ class UploadStatusSyncWorker(context: Context, params: WorkerParameters) : Corou
                 retry = true
             }
         }
-        if (retry || dao.getPendingServerRecords().isNotEmpty()) {
+        val pending = dao.getPendingServerRecords()
+        if (retry || pending.any { it.status != "delivery_unknown" }) {
             QueueRetryWorker.schedule(applicationContext, true).result.get()
+        } else if (pending.isNotEmpty()) {
+            QueueRetryWorker.scheduleReview(applicationContext).result.get()
         }
         Result.success()
     }

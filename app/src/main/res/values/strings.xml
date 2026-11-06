@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="history_cook_context_conflict">Сведения о поваре не подтверждены. Обратитесь в поддержку.</string>
     <string name="history_binding_changed">Фото относится к прежнему подключению. Отправка остановлена.</string>
     <string name="camera_shift_required">Выберите смену или укажите автора</string>
     <string name="camera_shift_sync_pending">Смена сохранена, ожидает синхронизации</string>

@@ -105,7 +105,7 @@ class MainActivity : AppCompatActivity() {
                 val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@MainActivity) }
                 val queued = items.count { it.queuedInUploadQueue }
                 val server = items.count { it.status in setOf("uploaded_to_server", "sending_to_chat") }
-                val issues = items.count { it.status in setOf("error", "needs_review") }
+                val issues = items.count { it.status in setOf("error", "needs_review", "delivery_unknown") }
                 val shiftSync = if (cookMode) CookLocalSession.preferences(this@MainActivity)
                     .getString(CookOfflineSyncWorker.SYNC_STATE, null) else null
                 statusText.text = when {
@@ -360,26 +360,16 @@ class MainActivity : AppCompatActivity() {
     private fun refreshCookWorkflow() {
         cookRefreshJob?.cancel()
         cookRefreshJob = scope.launch {
-            val state = withContext(Dispatchers.IO) {
-                val local = CookLocalSession.preferences(applicationContext)
-                val cached = CookLocalSession.cache(applicationContext).load()
+            val local = CookLocalSession.preferences(applicationContext)
+            val expectedScope = CookLocalSession.identity(applicationContext)
+            val preview = BuildConfig.BUILD_TYPE == "preview"
+            suspend fun applyLocalState(verified: CookBinding? = null) {
+              val state = withContext(Dispatchers.IO) {
+                val cached = CookShiftCache(local).load()
+                val roster = CookDeviceRosterCache(local).load()
                 val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
-                val preview = BuildConfig.BUILD_TYPE == "preview"
-                var enabled = preview || local.getBoolean("workflow_enabled", false)
-                var verified: CookBinding? = null
-                if (!preview) runCatching {
-                    val backend = prefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL).orEmpty()
-                    val device = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
-                    if (backend.isNotBlank() && device.isNotBlank()) {
-                        val client = CookWorkflowClient(backend)
-                        if (client.capabilities()?.supportsAttributedCapture == true) {
-                            verified = client.initializeBinding(device)
-                            enabled = true
-                            local.edit().putBoolean("workflow_enabled", true).commit()
-                        }
-                    }
-                }
-                val binding = verified ?: cached?.binding
+                val enabled = preview || local.getBoolean("workflow_enabled", false)
+                val binding = verified ?: if (local.contains(CookDeviceRosterCache.KEY)) roster?.binding else cached?.binding
                 val offline = if (binding != null && local.contains(CookOfflineSelectionCache.KEY)) {
                     runCatching {
                         val scope = CookLocalSession.offlineScope(applicationContext, binding)
@@ -395,18 +385,50 @@ class MainActivity : AppCompatActivity() {
                     }.getOrNull()
                 } else null
                 Triple(enabled, binding, CookShiftSelection.choose(local.contains(CookOfflineSelectionCache.KEY), offline, cached))
-            }
-            cookMode = state.first
-            currentBinding = state.second
-            val candidate = state.third?.takeIf { it.binding == currentBinding }
-            if (candidate != selectedShift) {
+              }
+              if (CookLocalSession.identity(applicationContext) != expectedScope) return
+              cookMode = state.first
+              currentBinding = state.second
+              val candidate = state.third?.takeIf { it.binding == currentBinding }
+              if (candidate != selectedShift) {
                 selectedShift = candidate
                 unassignedChoice = null
                 unassignedRevision++
                 if (candidate != null) cookSelection.setRoster(candidate.shift.cooks.toSet(), candidate.shift.mainCookId)
+              }
+              refreshCookPanel()
+              maybePromptForShift()
             }
-            refreshCookPanel()
-            maybePromptForShift()
+            applyLocalState()
+            if (!preview) {
+                val verified = withContext(Dispatchers.IO) {
+                    try {
+                        val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
+                        val backend = prefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL).orEmpty()
+                        val device = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
+                        if (backend.isBlank() || device.isBlank()) null else {
+                            val client = CookWorkflowClient(backend)
+                            if (client.capabilities()?.supportsAttributedCapture != true) null else {
+                                val binding = client.initializeBinding(device)
+                                ensureActive()
+                                if (binding.timezone == null || CookLocalSession.identity(applicationContext) != expectedScope) null
+                                else {
+                                    val cache = CookDeviceRosterCache(local)
+                                    val oldShift = CookShiftCache(local).load()
+                                    val saved = if (!local.contains(CookDeviceRosterCache.KEY) && oldShift?.binding == binding)
+                                        cache.save(binding, oldShift.employees) else cache.saveBinding(binding)
+                                    if (!saved) null else {
+                                        local.edit().putBoolean("workflow_enabled", true).commit()
+                                        binding
+                                    }
+                                }
+                            }
+                        }
+                    } catch (error: CancellationException) { throw error }
+                    catch (_: Exception) { null }
+                }
+                if (verified != null) applyLocalState(verified)
+            }
         }
     }
 
