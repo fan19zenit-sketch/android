@@ -3,14 +3,17 @@ package com.example.simplephotouploader
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.widget.HorizontalScrollView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
+import androidx.test.espresso.action.ViewActions.swipeLeft
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isEnabled
+import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -22,6 +25,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.LocalTime
+import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -113,6 +117,40 @@ class CookCameraFlowTest {
             assertTrue(!visible("Подтвердить смену"))
             scenario.onActivity { it.intent.putExtra("test_shift_clock_ms", morning.plusSeconds(1).toEpochMilli()) }
             await { visible("Подтвердить смену") }
+        }
+    }
+
+    @Test fun ambiguousCookCannotBeSilentlyAssignedToPhoto() {
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        val existing = dao.getAllHistory().map { it.id }.toSet()
+        val zone = ZoneId.of("Europe/Moscow")
+        val now = Instant.now().atZone(zone)
+        val binding = CookBinding("preview", 1, zone.id)
+        val people = listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")),
+            CookEmployee("cook-2", "ПОВАР 1", listOf("cook")),
+            CookEmployee("operator-1", "Оператор 1", listOf("operator")))
+        val local = CookLocalSession.preferences(context)
+        local.edit().remove(CookOfflineSelectionCache.KEY).commit()
+        assertTrue(CookDeviceRosterCache(local).save(binding, people))
+        assertTrue(CookLocalSession.cache(context).save(CachedCookShift(binding,
+            CookShift("same-name-shift", 1, binding.branchRef, now.toLocalDate().toString(), zone.id,
+                now.minusSeconds(1).toOffsetDateTime().toString(), listOf("cook-1"), listOf("operator-1"), "cook-1"), people)))
+        ActivityScenario.launch(MainActivity::class.java).use {
+            await { visible("Повар 1 · уточнить имя · основной") && cameraReady() }
+            onView(withId(R.id.captureButton)).perform(click())
+            await { visible("У сотрудников одинаковые имена. Уточните имена в справочнике или выберите «Автор неизвестен».") }
+            SystemClock.sleep(500)
+            assertEquals(0, dao.getAllHistory().count { it.id !in existing })
+            onView(withText("Понятно")).perform(click())
+            onView(isAssignableFrom(HorizontalScrollView::class.java)).perform(swipeLeft())
+            onView(withText("Автор неизвестен")).perform(click())
+            onView(withId(R.id.captureButton)).perform(click())
+            await { dao.getAllHistory().count { it.id !in existing } == 1 }
+            val photo = dao.getAllHistory().single { it.id !in existing }
+            val metadata = JSONObject(photo.photoContext!!)
+            assertEquals("explicit_unknown", metadata.getString("selectionSource"))
+            assertTrue(metadata.isNull("cookRef"))
+            assertTrue(metadata.isNull("cookNameSnapshot"))
         }
     }
 }
