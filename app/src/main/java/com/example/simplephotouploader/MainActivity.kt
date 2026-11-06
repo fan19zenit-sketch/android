@@ -52,7 +52,10 @@ class MainActivity : AppCompatActivity() {
         if (it.resultCode == RESULT_OK) refreshCookWorkflow()
     }
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        if (it) startCamera() else showPermissionError()
+        if (it) {
+            startCamera()
+            if (BuildConfig.FLAVOR == "clean") requestNotificationPermissionIfNeeded()
+        } else showPermissionError()
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -82,13 +85,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.versionText)?.text = getString(R.string.app_version, BuildConfig.VERSION_NAME)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera()
+            if (BuildConfig.FLAVOR == "clean") requestNotificationPermissionIfNeeded()
         } else permission.launch(Manifest.permission.CAMERA)
+        if (BuildConfig.FLAVOR != "clean") requestNotificationPermissionIfNeeded()
+        captureButton.setOnClickListener { takePhoto() }
+        settingsButton.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        captureButton.setOnClickListener { takePhoto() }
-        settingsButton.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
     }
 
     override fun onResume() {
