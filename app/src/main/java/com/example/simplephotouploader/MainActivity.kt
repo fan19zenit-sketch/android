@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
         private val captures = CaptureGate()
         private val cookSelection = CookCaptureSelection()
         private var selectedShift: CachedCookShift? = null
+        private var selectedShiftScope: String? = null
         private val unassignedSelection = CookUnassignedSelection()
     }
     private lateinit var previewView: PreviewView
@@ -44,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private var refreshJob: Job? = null
     private var cookMode = false
     private var currentBinding: CookBinding? = null
+    private var currentBindingScope: String? = null
     private var lastShiftPrompt = ""
     private var cookRefreshJob: Job? = null
     private var cookPanelKey = ""
@@ -200,9 +202,9 @@ class MainActivity : AppCompatActivity() {
         var photoContext: String? = null
         var unassignedAtCapture: CookUnassignedSelection.Reservation? = null
         if (cookMode) {
-            val snapshot = selectedShift
-            val binding = currentBinding
-            if (snapshot == null || !CookShiftPolicy.usable(snapshot.shift, binding, snapshot.binding, instant)) {
+            val binding = scopedBinding()
+            val snapshot = usableShift(binding, instant)
+            if (snapshot == null) {
                 val choice = unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), instant)
                 try {
                     photoContext = CookPhotoContextFactory.createUnassigned(requireNotNull(binding), requireNotNull(choice).choice, instant)
@@ -347,9 +349,19 @@ class MainActivity : AppCompatActivity() {
     private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java))
 
     private fun hasCaptureSelection(): Boolean {
-        val snapshot = selectedShift
-        return (snapshot != null && CookShiftPolicy.usable(snapshot.shift, currentBinding, snapshot.binding, Instant.now())) ||
-            (unassignedSelection.current(currentBinding, CookLocalSession.identity(applicationContext), Instant.now()) != null)
+        val now = Instant.now()
+        val binding = scopedBinding()
+        return usableShift(binding, now) != null ||
+            unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), now) != null
+    }
+
+    private fun scopedBinding(): CookBinding? = CookScopeGuard.binding(
+        currentBinding, currentBindingScope, CookLocalSession.identity(applicationContext))
+
+    private fun usableShift(binding: CookBinding?, now: Instant): CachedCookShift? {
+        val candidate = selectedShift ?: return null
+        if (!CookScopeGuard.matches(selectedShiftScope, CookLocalSession.identity(applicationContext))) return null
+        return candidate.takeIf { CookShiftPolicy.usable(it.shift, binding, it.binding, now) }
     }
 
     private fun styleCookChip(chip: com.google.android.material.chip.Chip) {
@@ -392,9 +404,11 @@ class MainActivity : AppCompatActivity() {
               if (CookLocalSession.identity(applicationContext) != expectedScope) return
               cookMode = state.first
               currentBinding = state.second
+              currentBindingScope = expectedScope
               val candidate = state.third?.takeIf { it.binding == currentBinding }
-              if (candidate != selectedShift) {
+              if (candidate != selectedShift || selectedShiftScope != expectedScope) {
                 selectedShift = candidate
+                selectedShiftScope = expectedScope
                 unassignedSelection.clear()
                 if (candidate != null) cookSelection.setRoster(candidate.shift.cooks.toSet(), candidate.shift.mainCookId)
               }
@@ -435,9 +449,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun maybePromptForShift() {
-        val binding = currentBinding
+        val binding = scopedBinding()
         val timezone = binding?.timezone ?: return
-        val candidate = selectedShift
+        val candidate = usableShift(binding, Instant.now())
         if (cookMode && CookShiftPolicy.needsConfirmation(candidate?.shift, binding, candidate?.binding, timezone, Instant.now())) {
             val day = Instant.now().atZone(ZoneId.of(timezone)).toLocalDate().toString()
             if (lastShiftPrompt != day && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
@@ -453,11 +467,12 @@ class MainActivity : AppCompatActivity() {
         if (!cookMode) return
         val next = findViewById<TextView>(R.id.cookNext)
         val choices = findViewById<LinearLayout>(R.id.cookChoices)
-        val snapshot = selectedShift?.takeIf { CookShiftPolicy.usable(it.shift, currentBinding, it.binding, Instant.now()) }
+        val binding = scopedBinding()
+        val snapshot = usableShift(binding, Instant.now())
         val selected = cookSelection.current()
         val source = if (snapshot != null) cookSelection.currentSource() else
-            unassignedSelection.current(currentBinding, CookLocalSession.identity(applicationContext), Instant.now())?.choice
-        val key = "$snapshot|$selected|$source|$currentBinding"
+            unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), Instant.now())?.choice
+        val key = "$snapshot|$selected|$source|$binding"
         if (key == cookPanelKey) { maybePromptForShift(); return }
         cookPanelKey = key
         val nextLabel = when (source) {
@@ -478,14 +493,14 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { cookSelection.selectOneShot(id); refreshCookPanel() }
             })
         }
-        if (currentBinding?.timezone != null) {
+        if (binding?.timezone != null) {
             listOf("explicit_unknown" to "Автор неизвестен", "shared" to "Совместно").forEach { (value, title) ->
                 choices.addView(com.google.android.material.chip.Chip(this).apply {
                     styleCookChip(this)
                     text = title; isCheckable = true; isChecked = source == value
                     setOnClickListener {
                         if (snapshot != null) cookSelection.selectUnassigned(value)
-                        else unassignedSelection.select(value, currentBinding, CookLocalSession.identity(applicationContext), Instant.now())
+                        else unassignedSelection.select(value, binding, CookLocalSession.identity(applicationContext), Instant.now())
                         refreshCookPanel()
                     }
                 })

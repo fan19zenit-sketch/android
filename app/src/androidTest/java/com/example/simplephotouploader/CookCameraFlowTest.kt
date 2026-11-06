@@ -76,4 +76,24 @@ class CookCameraFlowTest {
             assertEquals("cook-1", JSONObject(captured[1].photoContext!!).getJSONObject("cookRef").getString("id"))
         }
     }
+
+    @Test fun changedDeviceCannotCaptureWithPreviousDeviceShift() {
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        val existing = dao.getAllHistory().map { it.id }.toSet()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            await { visible("Смена") }
+            onView(withText("Смена")).perform(click())
+            await { visible("Повар 1") }
+            onView(withText("Повар 1")).perform(click())
+            onView(withText("Оператор 1")).perform(scrollTo(), click())
+            onView(withText("Подтвердить смену")).perform(scrollTo(), click())
+            await { visible("Повар 1 · основной") && cameraReady() }
+            context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
+                .putString(AppPrefs.KEY_DEVICE_UUID, "other-device").commit()
+            onView(withId(R.id.captureButton)).perform(click())
+            await { visible("Подтвердите состав смены перед съёмкой") }
+            SystemClock.sleep(500)
+            assertEquals(0, dao.getAllHistory().count { it.id !in existing })
+        }
+    }
 }
