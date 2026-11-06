@@ -69,4 +69,5 @@ jobs:
           name: device-tests-api-${{ matrix.api }}
           path: |
             app/build/reports/androidTests/
+            app/build/reports/permissionTests/
             app/build/reports/emulator-diagnostics/

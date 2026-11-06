@@ -24,8 +24,10 @@ class FirstLaunchPermissionsTest {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
             .putString(AppPrefs.KEY_CITY, "Тест").commit()
-        automation.revokeRuntimePermission(context.packageName, Manifest.permission.CAMERA)
-        automation.revokeRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        assertEquals("First-launch test requires a fresh install", PackageManager.PERMISSION_DENIED,
+            context.checkSelfPermission(Manifest.permission.CAMERA))
+        assertEquals("First-launch test requires a fresh install", PackageManager.PERMISSION_DENIED,
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS))
 
         fun clickSystemButton(id: String): Boolean {
             val deadline = SystemClock.elapsedRealtime() + 20_000

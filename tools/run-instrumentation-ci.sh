@@ -27,11 +27,18 @@ adb shell iptables -w 10 -I OUTPUT 1 -o lo -j ACCEPT
 adb shell ip6tables -w 10 -I OUTPUT 1 -j REJECT
 adb shell ip6tables -w 10 -I OUTPUT 1 -o lo -j ACCEPT
 
+permission_status=0
+bash gradlew :app:connectedCleanPreviewAndroidTest -PofflineInstrumentation=true -Pandroid.testInstrumentationRunnerArguments.class=com.example.simplephotouploader.FirstLaunchPermissionsTest --no-daemon --max-workers=2 || permission_status=$?
+if [ -d app/build/reports/androidTests ]; then
+    mkdir -p app/build/reports/permissionTests
+    cp -R app/build/reports/androidTests/. app/build/reports/permissionTests/
+fi
+
 preview_status=0
-bash gradlew :app:connectedCleanPreviewAndroidTest -PofflineInstrumentation=true -Pandroid.testInstrumentationRunnerArguments.class=com.example.simplephotouploader.PhotoRouteGuardTest,com.example.simplephotouploader.CookShiftActivityTest,com.example.simplephotouploader.CookPendingShiftTest,com.example.simplephotouploader.PhotoContextAcknowledgementTest,com.example.simplephotouploader.CookShiftCacheTest,com.example.simplephotouploader.CookPhotoContextFactoryTest,com.example.simplephotouploader.CookWorkflowClientTest,com.example.simplephotouploader.QueueDatabaseTest,com.example.simplephotouploader.CookOfflineDatabaseTest,com.example.simplephotouploader.CookCameraFlowTest,com.example.simplephotouploader.FirstLaunchPermissionsTest --no-daemon --max-workers=2 || preview_status=$?
+bash gradlew :app:connectedCleanPreviewAndroidTest -PofflineInstrumentation=true -Pandroid.testInstrumentationRunnerArguments.class=com.example.simplephotouploader.PhotoRouteGuardTest,com.example.simplephotouploader.CookShiftActivityTest,com.example.simplephotouploader.CookPendingShiftTest,com.example.simplephotouploader.PhotoContextAcknowledgementTest,com.example.simplephotouploader.CookShiftCacheTest,com.example.simplephotouploader.CookPhotoContextFactoryTest,com.example.simplephotouploader.CookWorkflowClientTest,com.example.simplephotouploader.QueueDatabaseTest,com.example.simplephotouploader.CookOfflineDatabaseTest,com.example.simplephotouploader.CookCameraFlowTest --no-daemon --max-workers=2 || preview_status=$?
 
 debug_status=0
 bash gradlew :app:connectedCleanDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.simplephotouploader.CameraRecoveryTest,com.example.simplephotouploader.DiagnosticsRecoveryTest,com.example.simplephotouploader.RemoteSupportTest,com.example.simplephotouploader.ScreenSmokeTest,com.example.simplephotouploader.SharedServerJobTest,com.example.simplephotouploader.UploadRecoveryTest,com.example.simplephotouploader.UpgradePersistenceTest --no-daemon --max-workers=2 || debug_status=$?
 
-printf 'Preview tests exit: %s; debug tests exit: %s\n' "$preview_status" "$debug_status"
-test "$preview_status" -eq 0 && test "$debug_status" -eq 0
+printf 'Permission tests exit: %s; preview tests exit: %s; debug tests exit: %s\n' "$permission_status" "$preview_status" "$debug_status"
+test "$permission_status" -eq 0 && test "$preview_status" -eq 0 && test "$debug_status" -eq 0
