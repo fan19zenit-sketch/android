@@ -99,8 +99,9 @@ class CookShiftActivity : AppCompatActivity() {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     val loaded = if (preview) {
+                        val secondName = if (intent.getBooleanExtra("test_duplicate_names", false)) "Повар 1" else "Повар 2"
                         val fixture = listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")),
-                            CookEmployee("cook-2", "Повар 2", listOf("cook")),
+                            CookEmployee("cook-2", secondName, listOf("cook")),
                             CookEmployee("operator-1", "Оператор 1", listOf("operator")))
                         LoadedRoster(CookBinding("preview", 1, "Europe/Moscow"), fixture,
                             intent.getBooleanExtra("test_offline", false))
@@ -190,6 +191,7 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(CheckBox(this).apply {
                 text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE); isChecked = employee.id in cooks
                 textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
+                isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
                 setOnCheckedChangeListener { _, checked ->
                     if (checked) cooks.add(employee.id) else cooks.remove(employee.id)
                     if (mainCook !in cooks) mainCook = cooks.firstOrNull()
@@ -205,6 +207,7 @@ class CookShiftActivity : AppCompatActivity() {
                         id = View.generateViewId(); text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE)
                         textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = employee.id == mainCook
+                        isEnabled = !CookEmployeeLabels.ambiguous(employee, employees)
                         setOnClickListener { mainCook = employee.id }
                     })
                 }
@@ -215,7 +218,8 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(CheckBox(this).apply {
                 text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE); isChecked = employee.id in operators
                 textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
-                setOnCheckedChangeListener { _, checked -> if (checked) operators.add(employee.id) else operators.remove(employee.id) }
+                isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
+                setOnCheckedChangeListener { _, checked -> if (checked) operators.add(employee.id) else operators.remove(employee.id); render() }
             })
         }
         content.addView(action("Добавить сотрудника") { addEmployee() })
@@ -274,6 +278,10 @@ class CookShiftActivity : AppCompatActivity() {
         val main = mainCook
         if (cooks.isEmpty() || operators.isEmpty() || main == null || main !in cooks) {
             showError("Выберите поваров, операторов и основного повара")
+            return
+        }
+        if (employees.any { it.id in cooks + operators && CookEmployeeLabels.ambiguous(it, employees) }) {
+            showError("У сотрудников одинаковые имена. Уточните имена в справочнике перед подтверждением смены.")
             return
         }
         if (busy) return

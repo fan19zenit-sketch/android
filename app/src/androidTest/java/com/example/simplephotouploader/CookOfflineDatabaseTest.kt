@@ -92,11 +92,13 @@ class CookOfflineDatabaseTest {
         assertTrue(dao.pendingEmployees("https://other.test", first.deviceUuid, first.branchRef, 1).isEmpty())
     }
 
-    @Test fun identicalNamesHaveDistinctStableDisplayLabels() {
+    @Test fun identicalNamesRequireDisambiguation() {
         val first = CookEmployee("a", "Повар", listOf("cook"))
-        val second = CookEmployee("b", "Повар", listOf("cook"))
-        assertEquals("Повар · 1", CookEmployeeLabels.label(first, listOf(second, first)))
-        assertEquals("Повар · 2", CookEmployeeLabels.label(second, listOf(first, second)))
+        val second = CookEmployee("b", "  ПОВАР  ", listOf("cook"))
+        assertTrue(CookEmployeeLabels.ambiguous(first, listOf(second, first)))
+        assertTrue(CookEmployeeLabels.ambiguous(second, listOf(first, second)))
+        assertEquals("Повар · уточнить имя", CookEmployeeLabels.label(first, listOf(second, first)))
+        assertFalse(CookEmployeeLabels.ambiguous(first, listOf(first)))
         assertEquals("Повар", CookEmployeeLabels.label(first, listOf(first)))
     }
 

@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.widget.CheckBox
+import android.view.View
+import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
@@ -18,6 +20,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +43,57 @@ class CookShiftActivityTest {
     }
 
     @After fun cleanup() = reset()
+
+    @Test fun duplicateNamesCannotBeSelected() {
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_duplicate_names", true)
+        ActivityScenario.launch<CookShiftActivity>(intent).use { scenario ->
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            var choices: List<CheckBox> = emptyList()
+            fun descendants(view: View): List<View> = listOf(view) +
+                if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
+            while (choices.size < 2 && SystemClock.elapsedRealtime() < deadline) {
+                scenario.onActivity { activity ->
+                    choices = descendants(activity.window.decorView).filterIsInstance<CheckBox>()
+                        .filter { it.text.toString() == "Повар 1 · уточнить имя" }
+                }
+                if (choices.size < 2) SystemClock.sleep(100)
+            }
+            assertEquals(2, choices.size)
+            scenario.onActivity { choices.forEach { assertFalse(it.isEnabled) } }
+        }
+    }
+
+    @Test fun previouslySelectedAmbiguousCookCanBeRemovedButNotRechecked() {
+        val now = Instant.now().atZone(ZoneId.of("Europe/Moscow"))
+        val binding = CookBinding("preview", 1, "Europe/Moscow")
+        val previous = CachedCookShift(binding, CookShift("old", 1, "preview", now.toLocalDate().toString(),
+            "Europe/Moscow", now.toOffsetDateTime().toString(), listOf("cook-1"), listOf("operator-1"), "cook-1"),
+            listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")),
+                CookEmployee("cook-2", "Повар 1", listOf("cook")), CookEmployee("operator-1", "Оператор 1", listOf("operator"))))
+        assertTrue(CookLocalSession.cache(context).save(previous))
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_duplicate_names", true)
+        ActivityScenario.launch<CookShiftActivity>(intent).use { scenario ->
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            var checked: CheckBox? = null
+            fun descendants(view: View): List<View> = listOf(view) +
+                if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
+            while (checked == null && SystemClock.elapsedRealtime() < deadline) {
+                scenario.onActivity { activity ->
+                    checked = descendants(activity.window.decorView).filterIsInstance<CheckBox>()
+                        .firstOrNull { it.text.toString() == "Повар 1 · уточнить имя" && it.isChecked }
+                }
+                if (checked == null) SystemClock.sleep(100)
+            }
+            assertNotNull(checked)
+            scenario.onActivity { assertTrue(checked!!.isEnabled); checked!!.performClick() }
+            scenario.onActivity { activity ->
+                val choices = descendants(activity.window.decorView).filterIsInstance<CheckBox>()
+                    .filter { it.text.toString() == "Повар 1 · уточнить имя" }
+                assertEquals(2, choices.size)
+                choices.forEach { assertFalse(it.isChecked); assertFalse(it.isEnabled) }
+            }
+        }
+    }
 
     @Test fun previewShiftCanBeConfirmedAndRestored() {
         ActivityScenario.launch(CookShiftActivity::class.java).use {

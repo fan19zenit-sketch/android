@@ -210,6 +210,12 @@ class MainActivity : AppCompatActivity() {
                 if (reservation == null) { captures.finish(captureId); return }
                 try {
                     val employee = snapshot.employees.firstOrNull { it.id == reservation.cookId }
+                    if (employee != null && CookEmployeeLabels.ambiguous(employee, snapshot.employees)) {
+                        cookSelection.finish(reservation, false)
+                        captures.finish(captureId)
+                        showAmbiguousCook()
+                        return
+                    }
                     val offline = snapshot.offlineShift
                     photoContext = if (offline != null) {
                         val selected = reservation.cookId?.let { CookOfflineSelectionCache.cookRef(offline, it) }
@@ -329,6 +335,12 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.close, null).show()
     }
 
+    private fun showAmbiguousCook() {
+        if (!isFinishing && !isDestroyed) AlertDialog.Builder(this)
+            .setMessage("У сотрудников одинаковые имена. Уточните имена в справочнике или выберите «Автор неизвестен».")
+            .setPositiveButton("Понятно", null).show()
+    }
+
     private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java))
 
     private fun hasCaptureSelection(): Boolean {
@@ -437,6 +449,7 @@ class MainActivity : AppCompatActivity() {
                 styleCookChip(this)
                 text = CookEmployeeLabels.label(employee, snapshot.employees) + if (id == snapshot.shift.mainCookId) " · основной" else ""
                 isCheckable = true; isChecked = id == selected
+                isEnabled = !CookEmployeeLabels.ambiguous(employee, snapshot.employees)
                 setOnClickListener { cookSelection.selectOneShot(id); refreshCookPanel() }
             })
         }
