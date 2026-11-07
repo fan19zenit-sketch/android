@@ -2,6 +2,7 @@ package com.example.simplephotouploader
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -11,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -172,6 +174,74 @@ class CookRealBackendIntegrationTest {
             }
         } finally {
             file.delete()
+        }
+        verifyOfflineSyncAndLostResponse(context, base, api, binding, a, b)
+    }
+
+    private fun verifyOfflineSyncAndLostResponse(context: Context, base: String, api: CookWorkflowClient,
+                                                  binding: CookBinding, device: String, otherDevice: String) {
+        val db = Room.inMemoryDatabaseBuilder(context, CookOfflineDatabase::class.java).allowMainThreadQueries().build()
+        try {
+            val dao = db.queue()
+            val scope = CookOfflineScope(base, device, binding)
+            val suffix = UUID.randomUUID().toString().take(8)
+            val cook = OfflineCookEmployee(base, device, binding.branchRef, binding.revision,
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), "Offline cook $suffix", "[\"cook\"]")
+            val operator = OfflineCookEmployee(base, device, binding.branchRef, binding.revision,
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), "Offline operator $suffix", "[\"operator\"]")
+            val zone = ZoneId.of(requireNotNull(binding.timezone))
+            val confirmed = Instant.now().atZone(zone).toLocalDate().atTime(11, 0).atZone(zone)
+            val captured = confirmed.plusMinutes(1).toInstant()
+            fun reference(id: String) = JSONObject().put("kind", "provisional").put("id", id)
+            val shift = OfflineCookShift(base, device, binding.branchRef, binding.revision,
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+                confirmed.toLocalDate().toString(), zone.id, confirmed.toOffsetDateTime().toString(),
+                JSONArray().put(reference(cook.provisionalId)).toString(),
+                JSONArray().put(reference(operator.provisionalId)).toString(), reference(cook.provisionalId).toString())
+            dao.enqueueEmployee(cook)
+            dao.enqueueEmployee(operator)
+            dao.enqueueShift(shift)
+            val photo = CookPhotoContextFactory.createProvisional(scope, shift,
+                CookEmployee(cook.provisionalId, cook.name, listOf("cook")),
+                CookOfflineRef("provisional", cook.provisionalId), "main_default", captured)
+            assertEquals("unresolved", api.syncPhotoContext(device, "test-photo-c", photo))
+
+            var lostResponse = false
+            val client = CookWorkflowClient(base) { request ->
+                if (!lostResponse && request.url.encodedPath == "/cook-v2/employees/manual") {
+                    PhotoApi.execute(request).use { assertTrue(it.isSuccessful) }
+                    lostResponse = true
+                    throw IOException("Simulated lost response after server accepted the employee")
+                }
+                PhotoApi.execute(request)
+            }
+            val sync = CookOfflineSync(dao, client)
+            try {
+                sync.sync(scope)
+                fail("The lost response must leave the employee pending")
+            } catch (expected: IOException) {
+                assertTrue(lostResponse)
+            }
+            assertEquals(2, dao.pendingEmployees(base, device, binding.branchRef, binding.revision).size)
+            assertEquals(1, requireNotNull(api.roster(device)).employees.count { it.displayName == cook.name })
+            val result = sync.sync(scope)
+            assertEquals(CookOfflineSyncResult(2, 1, 0), result)
+            assertEquals(CookOfflineSyncResult(0, 0, 0), sync.sync(scope))
+            assertEquals(1, requireNotNull(api.roster(otherDevice)).employees.count { it.displayName == cook.name })
+            val canonicalCook = requireNotNull(dao.employee(base, device, binding.branchRef, binding.revision, cook.provisionalId)?.canonicalId)
+            val savedShift = requireNotNull(dao.shift(base, device, binding.branchRef, binding.revision, shift.provisionalId))
+            assertTrue(requireNotNull(savedShift.canonicalRevision) > 0)
+            assertEquals("resolved", api.syncPhotoContext(device, "test-photo-c", photo))
+            PhotoApi.execute(Request.Builder().url("$base/fixture/photo/c").build()).use { response ->
+                assertEquals(200, response.code)
+                val saved = JSONObject(requireNotNull(response.body).string())
+                assertEquals("resolved", saved.getString("resolution"))
+                assertEquals("known", saved.getString("attributionState"))
+                assertEquals(canonicalCook, saved.getJSONObject("resolvedCookRef").getString("id"))
+                assertEquals(cook.provisionalId, saved.getJSONObject("snapshot").getJSONObject("cookRef").getString("id"))
+            }
+        } finally {
+            db.close()
         }
     }
 }
