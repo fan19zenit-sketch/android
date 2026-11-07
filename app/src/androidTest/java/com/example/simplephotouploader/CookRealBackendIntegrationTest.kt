@@ -7,7 +7,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.WorkManager
+import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
+import androidx.work.workDataOf
 import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -176,6 +178,7 @@ class CookRealBackendIntegrationTest {
             file.delete()
         }
         verifyOfflineSyncAndLostResponse(context, base, api, binding, a, b)
+        verifyOfflineWorker(context, base, api, binding, a)
     }
 
     private fun verifyOfflineSyncAndLostResponse(context: Context, base: String, api: CookWorkflowClient,
@@ -242,6 +245,63 @@ class CookRealBackendIntegrationTest {
             }
         } finally {
             db.close()
+        }
+    }
+
+    private suspend fun verifyOfflineWorker(context: Context, base: String, api: CookWorkflowClient,
+                                            binding: CookBinding, device: String) {
+        val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
+        val local = CookLocalSession.preferences(context)
+        val previous = listOf(AppPrefs.KEY_BACKEND_URL, AppPrefs.KEY_DEVICE_UUID, AppPrefs.KEY_CITY)
+            .associateWith { prefs.getString(it, null) }
+        val previousSyncState = local.getString(CookOfflineSyncWorker.SYNC_STATE, null)
+        val work = WorkManager.getInstance(context)
+        val db = CookOfflineDatabase.get(context)
+        val dao = db.queue()
+        val cook = OfflineCookEmployee(base, device, binding.branchRef, binding.revision,
+            UUID.randomUUID().toString(), UUID.randomUUID().toString(), "Worker cook ${UUID.randomUUID()}", "[\"cook\"]")
+        val operator = requireNotNull(api.roster(device)).employees.first { "operator" in it.roles }
+        val zone = ZoneId.of(requireNotNull(binding.timezone))
+        val confirmed = Instant.now().atZone(zone).toLocalDate().atTime(11, 0).atZone(zone)
+        fun ref(kind: String, id: String) = JSONObject().put("kind", kind).put("id", id)
+        val shift = OfflineCookShift(base, device, binding.branchRef, binding.revision,
+            UUID.randomUUID().toString(), UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+            confirmed.toLocalDate().toString(), zone.id, confirmed.toOffsetDateTime().toString(),
+            JSONArray().put(ref("provisional", cook.provisionalId)).toString(),
+            JSONArray().put(ref("employee", operator.id)).toString(), ref("provisional", cook.provisionalId).toString())
+        val city = "Test branch"
+        val input = workDataOf("backend" to base, "device" to device, "city" to city,
+            "branch" to binding.branchRef, "revision" to binding.revision, "timezone" to zone.id)
+        try {
+            dao.enqueueEmployee(cook)
+            dao.enqueueShift(shift)
+            prefs.edit().putString(AppPrefs.KEY_BACKEND_URL, base).putString(AppPrefs.KEY_DEVICE_UUID, device)
+                .putString(AppPrefs.KEY_CITY, "other city").commit()
+            val skipped = TestListenableWorkerBuilder<CookOfflineSyncWorker>(context).setInputData(input).build().doWork()
+            assertTrue(skipped is ListenableWorker.Result.Success)
+            assertNull(dao.employee(base, device, binding.branchRef, binding.revision, cook.provisionalId)?.canonicalId)
+            assertFalse(requireNotNull(api.roster(device)).employees.any { it.displayName == cook.name })
+
+            prefs.edit().putString(AppPrefs.KEY_CITY, city).commit()
+            val synced = TestListenableWorkerBuilder<CookOfflineSyncWorker>(context).setInputData(input).build().doWork()
+            assertTrue(synced is ListenableWorker.Result.Success)
+            assertFalse(dao.employee(base, device, binding.branchRef, binding.revision, cook.provisionalId)?.canonicalId.isNullOrBlank())
+            assertTrue(requireNotNull(dao.shift(base, device, binding.branchRef, binding.revision, shift.provisionalId)?.canonicalRevision) > 0)
+            assertEquals(1, requireNotNull(api.roster(device)).employees.count { it.displayName == cook.name })
+            val again = TestListenableWorkerBuilder<CookOfflineSyncWorker>(context).setInputData(input).build().doWork()
+            assertTrue(again is ListenableWorker.Result.Success)
+            assertEquals(1, requireNotNull(api.roster(device)).employees.count { it.displayName == cook.name })
+        } finally {
+            work.cancelAllWork().result.get()
+            db.openHelper.writableDatabase.execSQL("DELETE FROM offline_shifts WHERE backendUrl=? AND deviceUuid=? AND branchRef=? AND bindingRevision=? AND provisionalId=?",
+                arrayOf<Any>(base, device, binding.branchRef, binding.revision, shift.provisionalId))
+            db.openHelper.writableDatabase.execSQL("DELETE FROM offline_employees WHERE backendUrl=? AND deviceUuid=? AND branchRef=? AND bindingRevision=? AND provisionalId=?",
+                arrayOf<Any>(base, device, binding.branchRef, binding.revision, cook.provisionalId))
+            prefs.edit().apply { previous.forEach { (key, value) -> if (value == null) remove(key) else putString(key, value) } }.commit()
+            local.edit().apply {
+                if (previousSyncState == null) remove(CookOfflineSyncWorker.SYNC_STATE)
+                else putString(CookOfflineSyncWorker.SYNC_STATE, previousSyncState)
+            }.commit()
         }
     }
 }
