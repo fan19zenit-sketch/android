@@ -1,10 +1,12 @@
 param(
     [Parameter(Mandatory = $true)][string]$BackendRepo,
     [Parameter(Mandatory = $true)][string]$Emulator,
-    [switch]$Background
+    [switch]$Background,
+    [switch]$OfflineBackground
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Background -and $OfflineBackground) { throw 'Choose only one background scenario.' }
 if ($Emulator -notmatch '^emulator-[0-9]+$') { throw 'Only an explicitly named Android emulator is permitted.' }
 if (-not $env:ANDROID_HOME) { throw 'Set ANDROID_HOME to the Android SDK.' }
 $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
@@ -91,7 +93,7 @@ try {
     Push-Location -LiteralPath (Join-Path $PSScriptRoot '..')
     $locationPushed = $true
     $testStarted = $true
-    if (-not $Background) {
+    if (-not $Background -and -not $OfflineBackground) {
         Invoke-IntegrationTest 'com.example.simplephotouploader.CookRealBackendIntegrationTest'
     } else {
         & (Join-Path $PSScriptRoot '..\gradlew.bat') :app:assembleCleanLocaltest :app:assembleCleanLocaltestAndroidTest `
@@ -102,7 +104,9 @@ try {
         if (-not (Test-Path -LiteralPath $appApk) -or -not (Test-Path -LiteralPath $testApk)) { throw 'The isolated test APKs are missing.' }
         Invoke-AdbChecked -Arguments @('install', '-r', $appApk)
         Invoke-AdbChecked -Arguments @('install', '-r', $testApk)
-        Invoke-InstalledIntegrationTest 'com.example.simplephotouploader.CookBackgroundIntegrationTest#seed'
+        $testClass = if ($OfflineBackground) { 'com.example.simplephotouploader.CookOfflineBackgroundIntegrationTest' }
+                     else { 'com.example.simplephotouploader.CookBackgroundIntegrationTest' }
+        Invoke-InstalledIntegrationTest "$testClass#seed"
         $seed = Invoke-RestMethod -Uri 'http://127.0.0.1:18433/fixture/background-pid' -TimeoutSec 3
         if (-not $seed.pid -or $seed.pid -lt 1) { throw 'The fixture did not record the test process.' }
         $current = (& $adb -s $Emulator shell pidof com.example.photovchistotu.localtest 2>$null | Out-String).Trim()
@@ -114,18 +118,20 @@ try {
         }
         Write-Host "Isolated app process $($seed.pid) is stopped; waiting for Android to restart queued work."
         Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:18433/fixture/enable-capability' -TimeoutSec 3 | Out-Null
-        $uploadUrl = 'http://127.0.0.1:18433/fixture/upload/99999999-9999-4999-8999-999999999999'
+        $probeUrl = if ($OfflineBackground) { 'http://127.0.0.1:18433/fixture/offline-background' }
+                    else { 'http://127.0.0.1:18433/fixture/upload/99999999-9999-4999-8999-999999999999' }
         $deadline = [datetime]::UtcNow.AddSeconds(180)
         $received = $false
         while ([datetime]::UtcNow -lt $deadline -and -not $received) {
             try {
-                $result = Invoke-RestMethod -Uri $uploadUrl -TimeoutSec 3
-                $received = $result.status -eq 'uploaded_to_server' -and $result.queued -eq 1
+                $result = Invoke-RestMethod -Uri $probeUrl -TimeoutSec 3
+                $received = if ($OfflineBackground) { $result.employeeMapped -eq $true -and $result.shiftMapped -eq $true }
+                            else { $result.status -eq 'uploaded_to_server' -and $result.queued -eq 1 }
             } catch { Start-Sleep -Seconds 2 }
             if (-not $received) { Start-Sleep -Seconds 2 }
         }
         if (-not $received) { throw 'Android did not resume the queued upload within the test window.' }
-        Invoke-InstalledIntegrationTest 'com.example.simplephotouploader.CookBackgroundIntegrationTest#verify'
+        Invoke-InstalledIntegrationTest "$testClass#verify"
     }
 } finally {
     if ($locationPushed) { Pop-Location }
