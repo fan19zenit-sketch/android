@@ -26,13 +26,20 @@ object PhotoHistoryStore {
         val status: String,
         val error: String?,
         val queuedInUploadQueue: Boolean,
+        val photoContextAck: String? = null,
     )
 
-    fun addQueued(context: Context, photoPath: String): String {
+    fun addQueued(
+        context: Context,
+        photoPath: String,
+        capturedAt: String = Instant.now().toString(),
+        photoContext: String? = null,
+        captureDeviceUuid: String? = null,
+        captureBackendUrl: String? = null,
+    ): String {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getByPhotoPath(photoPath)
         if (existing != null) {
-            dao.update(existing.copy(status = "queued", error = null, queuedInUploadQueue = true))
             return existing.id
         }
 
@@ -46,11 +53,14 @@ object PhotoHistoryStore {
                 chatDeleted = false,
                 photoPath = photoPath,
                 thumbnailPath = thumbnailPath,
-                capturedAt = Instant.now().toString(),
+                capturedAt = capturedAt,
                 sentAt = null,
                 status = "queued",
                 error = null,
                 queuedInUploadQueue = true,
+                photoContext = photoContext,
+                captureDeviceUuid = captureDeviceUuid,
+                captureBackendUrl = captureBackendUrl,
             )
         )
         return id
@@ -84,9 +94,21 @@ object PhotoHistoryStore {
     }
 
     fun markChatDeleted(context: Context, jobId: String) {
-        val dao = PilotDatabase.get(context).photoRecordDao()
-        val item = dao.getByJobId(jobId) ?: return
-        dao.update(item.copy(messageId = null, chatDeleted = true))
+        PilotDatabase.get(context).runInTransaction {
+            val dao = PilotDatabase.get(context).photoRecordDao()
+            for (item in dao.getAllByJobId(jobId)) {
+                dao.update(item.copy(messageId = null, chatDeleted = true))
+            }
+        }
+    }
+
+    fun markServerNeedsReview(context: Context, jobId: String, error: String) {
+        PilotDatabase.get(context).runInTransaction {
+            val dao = PilotDatabase.get(context).photoRecordDao()
+            for (item in dao.getAllByJobId(jobId)) {
+                dao.update(item.copy(status = "needs_review", queuedInUploadQueue = false, error = error))
+            }
+        }
     }
 
     fun list(context: Context): List<Entry> {
@@ -108,27 +130,28 @@ object PhotoHistoryStore {
         val dao = PilotDatabase.get(context).photoRecordDao()
         for (job in jobs) {
             val jobId = job["job_id"] ?: continue
-            val item = dao.getByJobId(jobId) ?: continue
-            val mappedStatus = when (job["status"]) {
-                "uploaded_to_server" -> "uploaded_to_server"
-                "sending_to_chat" -> "sending_to_chat"
-                "sent" -> "sent"
-                "failed" -> "error"
-                else -> item.status
+            PilotDatabase.get(context).runInTransaction {
+                for (item in dao.getAllByJobId(jobId)) {
+                    val mappedStatus = when (job["status"]) {
+                        "uploaded_to_server" -> "uploaded_to_server"
+                        "sending_to_chat" -> "sending_to_chat"
+                        "sent" -> "sent"
+                        "failed" -> if (job["delivery_outcome"] == "unknown") "delivery_unknown" else "error"
+                        else -> item.status
+                    }
+                    dao.update(item.copy(
+                        status = mappedStatus,
+                        sentAt = when {
+                            mappedStatus == "sent" -> job["sent_at"] ?: item.sentAt ?: Instant.now().toString()
+                            else -> job["sent_at"] ?: item.sentAt
+                        },
+                        error = job["error"],
+                        messageId = job["message_id"] ?: item.messageId,
+                        chatDeleted = item.chatDeleted || job["chat_deleted"] == "true",
+                        queuedInUploadQueue = false,
+                    ))
+                }
             }
-            dao.update(
-                item.copy(
-                    status = mappedStatus,
-                    sentAt = when {
-                        mappedStatus == "sent" -> job["sent_at"] ?: item.sentAt ?: Instant.now().toString()
-                        else -> job["sent_at"] ?: item.sentAt
-                    },
-                    error = job["error"] ?: item.error,
-                    messageId = job["message_id"] ?: item.messageId,
-                    chatDeleted = job["chat_deleted"] == "true",
-                    queuedInUploadQueue = false,
-                )
-            )
         }
     }
 
@@ -142,11 +165,8 @@ object PhotoHistoryStore {
 
     fun migrateFromLegacyPrefsIfNeeded(context: Context) {
         val dao = PilotDatabase.get(context).photoRecordDao()
-        if (dao.count() > 0) {
-            return
-        }
-
         val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean("history_room_migrated", false)) return
         val historyRaw = prefs.getString(AppPrefs.KEY_HISTORY, "[]") ?: "[]"
         val queueRaw = prefs.getString(AppPrefs.KEY_QUEUE, "[]") ?: "[]"
         val queuedPaths = mutableSetOf<String>()
@@ -156,9 +176,11 @@ object PhotoHistoryStore {
         }
 
         val historyArray = JSONArray(historyRaw)
+        PilotDatabase.get(context).runInTransaction {
         for (index in 0 until historyArray.length()) {
             val obj = historyArray.getJSONObject(index)
             val path = obj.getString("photo_path")
+            if (dao.getByPhotoPath(path) != null) continue
             dao.insert(
                 PhotoRecordEntity(
                     id = obj.getString("id"),
@@ -175,12 +197,24 @@ object PhotoHistoryStore {
                 )
             )
         }
+        for (path in queuedPaths) {
+            if (dao.getByPhotoPath(path) == null && File(path).exists()) {
+                val id = UUID.randomUUID().toString()
+                dao.insert(PhotoRecordEntity(id, null, null, false, path,
+                    createThumbnail(context, path, id), Instant.ofEpochMilli(File(path).lastModified()).toString(),
+                    null, "queued", null, true))
+            }
+        }
+        }
+        check(prefs.edit().putBoolean("history_room_migrated", true).commit())
     }
 
     private fun updateByPhotoPath(context: Context, photoPath: String, transform: (PhotoRecordEntity) -> PhotoRecordEntity) {
+        PilotDatabase.get(context).runInTransaction {
         val dao = PilotDatabase.get(context).photoRecordDao()
-        val item = dao.getByPhotoPath(photoPath) ?: return
+        val item = dao.getByPhotoPath(photoPath) ?: return@runInTransaction
         dao.update(transform(item))
+        }
     }
 
     private fun createThumbnail(context: Context, photoPath: String, id: String): String? {
@@ -222,6 +256,7 @@ object PhotoHistoryStore {
             status = entity.status,
             error = entity.error,
             queuedInUploadQueue = entity.queuedInUploadQueue,
+            photoContextAck = entity.photoContextAck,
         )
     }
 }

@@ -1,0 +1,32 @@
+# REVIEW TEMPLATE ONLY. Insert the handlers below inside the existing
+# handle_path /photo-api/* after verifying upstream and route precedence.
+# PHOTO_BACKEND_UPSTREAM must be set to the verified local backend address.
+# Do not replace existing photo/support routes with this fragment.
+    @cook_get {
+        method GET
+        path /cook-v2/capabilities /cook-v2/binding /cook-v2/employees /cook-v2/shifts
+    }
+    handle @cook_get {
+        reverse_proxy {$PHOTO_BACKEND_UPSTREAM}
+    }
+    @cook_post {
+        method POST
+        path /cook-v2/upload /cook-v2/binding/initialize /cook-v2/employees/manual /cook-v2/shifts
+    }
+    handle @cook_post {
+        request_body {
+            max_size 40MB
+        }
+        reverse_proxy {$PHOTO_BACKEND_UPSTREAM}
+    }
+    @cook_put {
+        method PUT
+        path /cook-v2/photo-context
+    }
+    handle @cook_put {
+        request_body {
+            max_size 64KB
+        }
+        reverse_proxy {$PHOTO_BACKEND_UPSTREAM}
+    }
+    # Keep the existing legacy handlers and final fallback unchanged.

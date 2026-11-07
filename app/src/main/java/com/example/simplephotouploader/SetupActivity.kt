@@ -25,14 +25,13 @@ class SetupActivity : AppCompatActivity() {
         const val EXTRA_FORCE_EDIT = "force_edit"
     }
 
-    private val client = OkHttpClient.Builder().build()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_setup)
 
-        val isCleanApp = packageName == "com.example.photovchistotu"
+        val isCleanApp = BuildConfig.FLAVOR == "clean"
         val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
         val forceEdit = intent.getBooleanExtra(EXTRA_FORCE_EDIT, false)
         val backendUrl = AppPrefs.DEFAULT_BACKEND_URL
@@ -53,6 +52,9 @@ class SetupActivity : AppCompatActivity() {
         val telegramThreadLabel = findViewById<TextView>(R.id.tvTelegramThreadIdLabel)
         val telegramThreadInput = findViewById<EditText>(R.id.etTelegramThreadId)
         val button = findViewById<Button>(R.id.btnSave)
+        findViewById<Button>(R.id.btnSetupSupport).setOnClickListener {
+            startActivity(Intent(this, SupportActivity::class.java))
+        }
 
         if (isCleanApp) {
             instructions.text = getString(R.string.setup_instructions_clean)
@@ -97,6 +99,10 @@ class SetupActivity : AppCompatActivity() {
         cityInput.requestFocus()
 
         button.setOnClickListener {
+            if (PhotoQueueStore.hasItems(this) || PilotDatabase.get(this).photoRecordDao().getPendingServerRecords().isNotEmpty()) {
+                cityInput.error = getString(R.string.setup_queue_pending)
+                return@setOnClickListener
+            }
             val city = cityInput.text.toString().trim()
             val transportType = if (isCleanApp) {
                 null
@@ -114,6 +120,11 @@ class SetupActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             val deviceUuid = prefs.getString(AppPrefs.KEY_DEVICE_UUID, null) ?: UUID.randomUUID().toString()
+            // The server may have accepted a request even when its response was lost.
+            if (!prefs.edit().putString(AppPrefs.KEY_DEVICE_UUID, deviceUuid).commit()) {
+                cityInput.error = getString(R.string.setup_storage_error)
+                return@setOnClickListener
+            }
             button.isEnabled = false
 
             scope.launch {
@@ -141,6 +152,7 @@ class SetupActivity : AppCompatActivity() {
                         .apply()
                     startMain()
                 } else {
+                    RemoteSupport.checkImmediately(applicationContext)
                     val message = result.exceptionOrNull()?.message ?: getString(R.string.registration_failed)
                     cityInput.error = message
                     cityInput.requestFocus()
@@ -182,7 +194,7 @@ class SetupActivity : AppCompatActivity() {
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            PhotoApi.execute(request).use { response ->
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
                     val message = try {

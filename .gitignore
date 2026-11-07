@@ -1,5 +1,6 @@
 # Android / Gradle
 .gradle/
+.kotlin/
 build/
 **/build/
 captures/
@@ -40,3 +41,5 @@ venv/
 
 # Deployment bundles generated from source
 *.zip
+hs_err_pid*.log
+replay_pid*.log

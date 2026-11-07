@@ -1,18 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_enabled="false">
-        <shape android:shape="rectangle">
-            <corners android:radius="22dp" />
-            <solid android:color="#809A9588" />
-        </shape>
-    </item>
-    <item>
-        <shape android:shape="rectangle">
-            <corners android:radius="22dp" />
-            <gradient
-                android:angle="0"
-                android:endColor="@color/clean_pink"
-                android:startColor="@color/clean_pink_dark" />
-        </shape>
-    </item>
-</selector>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/clean_pink" />
+    <corners android:radius="16dp" />
+</shape>
