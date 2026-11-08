@@ -112,6 +112,26 @@ object RemoteSupport {
             .put("last_event_at", prefs.getLong("event_at", 0))
     }
 
+    internal fun cookDiagnostics(context: Context): JSONObject {
+        val photo = PilotDatabase.get(context).photoRecordDao()
+        val offline = CookOfflineDatabase.get(context).queue()
+        val preferences = CookLocalSession.preferences(context)
+        val cached = CookLocalSession.cache(context).load()
+        val shiftState = when {
+            CookPendingShiftStore(preferences).load() != null -> "pending"
+            cached != null && CookShiftPolicy.usable(cached.shift, cached.binding, cached.binding, Instant.now()) -> "cached_today"
+            else -> "not_available"
+        }
+        val syncState = preferences.getString(CookOfflineSyncWorker.SYNC_STATE, "idle")
+            .takeIf { it in setOf("idle", "waiting", "attention") } ?: "attention"
+        return JSONObject().put("shift_state", shiftState).put("offline_sync", syncState)
+            .put("employees_pending", offline.pendingEmployeeCount())
+            .put("shifts_pending", offline.pendingShiftCount())
+            .put("contexts_pending", photo.pendingContextCount())
+            .put("contexts_conflict", photo.contextConflictCount())
+            .put("contexts_invalid", photo.invalidContextCount())
+    }
+
     internal fun post(path: String, body: JSONObject, token: String? = null,
                       transport: OkHttpClient = client, endpoint: String = BASE_URL): JSONObject {
         val endpoints = if (endpoint == BASE_URL) listOf(BASE_URL, ConnectionPolicy.RESERVE_SUPPORT) else listOf(endpoint)
@@ -190,6 +210,7 @@ object RemoteSupport {
         val priority = recentFailures.map { it.optString("id") }.toSet()
         val events = recentFailures + journal.filterNot { it.optString("id") in priority }.take(12 - recentFailures.size)
         val response = post("heartbeat", JSONObject().put("device", device).put("diagnostics", diagnostics(context))
+            .put("cook_diagnostics", cookDiagnostics(context))
             .put("diagnostic_schema", 2).put("network", DiagnosticJournal.network(context)).put("events", JSONArray(events)),
             identity.getProperty("token"))
         applyResponse(context, response)

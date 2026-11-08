@@ -22,6 +22,7 @@ data class CookShift(val id: String, val revision: Int, val branchRef: String, v
 
 class CookApiHttpException(val status: Int) : IOException("Cook API HTTP $status")
 class CookApiProtocolException(message: String, cause: Throwable? = null) : IOException(message, cause)
+class InvalidSavedPhotoContextException(cause: Throwable) : IOException("Invalid saved photo context", cause)
 
 /** No call here implies photo metadata was accepted; capability and acknowledgement are separate. */
 class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Response = { PhotoApi.execute(it) }) {
@@ -133,7 +134,7 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
 
     fun syncPhotoContext(deviceId: String, uploadId: String, photoContext: String): String {
         val context = try { JSONObject(photoContext) } catch (error: Exception) {
-            throw IOException("Invalid saved photo context", error)
+            throw InvalidSavedPhotoContextException(error)
         }
         val acknowledgement = request("photo-context", body = JSONObject().put("deviceUuid", deviceId)
             .put("clientUploadId", uploadId).put("photoContext", context), method = "PUT")

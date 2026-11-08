@@ -64,7 +64,8 @@ def create_app():
                         raise ValueError("Invalid diagnostic schema")
                     result = await run_in_threadpool(store.heartbeat, data["device"], auth[7:], data["diagnostics"],
                                                     data["events"] if data.get("diagnostic_schema") == 2 else None,
-                                                    data["network"] if data.get("diagnostic_schema") == 2 else None)
+                                                    data["network"] if data.get("diagnostic_schema") == 2 else None,
+                                                    data.get("cook_diagnostics"))
             return JSONResponse(result, headers={"Cache-Control": "no-store"})
         except Denied:
             return JSONResponse({"error": "not_authorized"}, 403)

@@ -68,6 +68,9 @@ class HistoryAdapter(
             if (item.photoContextAck == "conflict") {
                 subtitle.text = "${subtitle.text}\n${itemView.context.getString(R.string.history_cook_context_conflict)}"
             }
+            if (item.photoContextAck == "invalid_context") {
+                subtitle.text = "${subtitle.text}\n${itemView.context.getString(R.string.history_cook_context_invalid)}"
+            }
 
             status.text = when (item.status) {
                 "sent" -> if (item.chatDeleted) {
@@ -102,8 +105,9 @@ class HistoryAdapter(
             deleteButton.setOnClickListener {
                 onDeleteFromChat(item)
             }
-            retryButton?.visibility = if (item.jobId.isNullOrBlank() && !item.chatDeleted &&
-                item.status in setOf("needs_review", "error", "retrying") && File(item.photoPath).exists()) View.VISIBLE else View.GONE
+            retryButton?.visibility = if (item.photoContextAck == "invalid_context" ||
+                (item.jobId.isNullOrBlank() && !item.chatDeleted &&
+                item.status in setOf("needs_review", "error", "retrying") && File(item.photoPath).exists())) View.VISIBLE else View.GONE
             retryButton?.setOnClickListener { onRetry(item) }
             status.setTextColor(android.graphics.Color.parseColor(when {
                 item.status == "sent" && !item.chatDeleted -> "#25745B"

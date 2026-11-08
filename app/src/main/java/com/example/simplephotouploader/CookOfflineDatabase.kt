@@ -55,6 +55,12 @@ data class OfflineCookShift(
 
 @Dao
 abstract class CookOfflineDao {
+    @Query("SELECT COUNT(*) FROM offline_employees WHERE canonicalId IS NULL")
+    abstract fun pendingEmployeeCount(): Int
+
+    @Query("SELECT COUNT(*) FROM offline_shifts WHERE canonicalRevision IS NULL")
+    abstract fun pendingShiftCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     protected abstract fun insertEmployee(value: OfflineCookEmployee): Long
 

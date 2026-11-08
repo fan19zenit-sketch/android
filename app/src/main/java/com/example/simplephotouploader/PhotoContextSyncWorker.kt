@@ -22,8 +22,14 @@ object PhotoContextSynchronizer {
             val resolution = try {
                 send(item)
             } catch (error: CookApiHttpException) {
-                if (error.status != 409) throw error
-                dao.markPhotoContextConflict(item.id, snapshot)
+                when (error.status) {
+                    409 -> dao.markPhotoContextConflict(item.id, snapshot)
+                    422 -> dao.markPhotoContextInvalid(item.id, snapshot)
+                    else -> throw error
+                }
+                continue
+            } catch (_: InvalidSavedPhotoContextException) {
+                dao.markPhotoContextInvalid(item.id, snapshot)
                 continue
             }
             if (resolution !in setOf("resolved", "unresolved", "not_applicable")) {

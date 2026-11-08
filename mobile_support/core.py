@@ -101,6 +101,19 @@ def connection_events(value):
     return value
 
 
+def cook_telemetry(value):
+    counters = {"employees_pending", "shifts_pending", "contexts_pending", "contexts_conflict", "contexts_invalid"}
+    if not isinstance(value, dict) or set(value) != counters | {"shift_state", "offline_sync"}:
+        raise ValueError("Invalid cook diagnostics fields")
+    if value["shift_state"] not in {"pending", "cached_today", "not_available"}:
+        raise ValueError("Invalid shift state")
+    if value["offline_sync"] not in {"idle", "waiting", "attention"}:
+        raise ValueError("Invalid offline sync state")
+    if any(type(value[key]) is not int or not 0 <= value[key] <= 1000000 for key in counters):
+        raise ValueError("Invalid cook diagnostic count")
+    return value
+
+
 def network_state(value):
     flags = {"connected", "validated", "captive_portal", "metered", "power_save", "idle",
              "battery_exempt", "background_restricted"}
@@ -168,8 +181,10 @@ class Store:
                 raise Denied("Installation already bound; administrator reset required")
         return {"token": self.token(device, installation)}
 
-    def heartbeat(self, device, token, data, events=None, network=None):
+    def heartbeat(self, device, token, data, events=None, network=None, cook=None):
         device, data = identifier(device), telemetry(data)
+        if cook is not None:
+            data = dict(data, cook=cook_telemetry(cook))
         if events is not None:
             events = connection_events(events)
             network = network_state(network)

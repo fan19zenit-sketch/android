@@ -99,6 +99,16 @@ class HistoryActivity : AppCompatActivity() {
     }
 
     private fun retryPhoto(entry: PhotoHistoryStore.Entry) {
+        if (entry.photoContextAck == "invalid_context") {
+            scope.launch {
+                val updated = withContext(Dispatchers.IO) {
+                    PilotDatabase.get(this@HistoryActivity).photoRecordDao().retryInvalidPhotoContext(entry.photoPath)
+                }
+                if (updated == 1) PhotoContextSyncWorker.enqueue(applicationContext)
+                renderHistory(findViewById(R.id.recyclerHistory), findViewById(R.id.tvEmpty))
+            }
+            return
+        }
         AlertDialog.Builder(this).setTitle(R.string.history_retry)
             .setMessage(R.string.history_retry_confirm)
             .setNegativeButton(R.string.close, null)

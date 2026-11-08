@@ -32,6 +32,16 @@ class RemoteSupportTest {
         assertTrue(data.getLong("page_size") in setOf(4096L, 16384L, 65536L))
     }
 
+    @Test fun cookTelemetryContainsOnlyCountsAndCoarseStates() {
+        val data = RemoteSupport.cookDiagnostics(context)
+        val expected = setOf("shift_state", "offline_sync", "employees_pending", "shifts_pending",
+            "contexts_pending", "contexts_conflict", "contexts_invalid")
+        assertEquals(expected, data.keys().asSequence().toSet())
+        assertTrue(data.getString("shift_state") in setOf("pending", "cached_today", "not_available"))
+        assertTrue(data.getString("offline_sync") in setOf("idle", "waiting", "attention"))
+        expected.filterNot { it in setOf("shift_state", "offline_sync") }.forEach { assertTrue(data.getInt(it) >= 0) }
+    }
+
     @Test fun remoteSettingsExpireAndDoNotChangeRecords() {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val before = dao.getAllHistory()

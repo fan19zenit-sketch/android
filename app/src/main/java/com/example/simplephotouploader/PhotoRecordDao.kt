@@ -20,6 +20,15 @@ interface PhotoRecordDao {
     @Query("SELECT MIN(capturedAt) FROM photo_records WHERE queuedInUploadQueue = 1")
     fun oldestQueuedAt(): String?
 
+    @Query("SELECT COUNT(*) FROM photo_records WHERE jobId IS NOT NULL AND photoContext IS NOT NULL AND (photoContextAck IS NULL OR photoContextAck = 'unresolved')")
+    fun pendingContextCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE photoContextAck = 'conflict'")
+    fun contextConflictCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE photoContextAck = 'invalid_context'")
+    fun invalidContextCount(): Int
+
     @Query("SELECT * FROM photo_records WHERE jobId IS NOT NULL AND status IN ('uploaded_to_server', 'sending_to_chat', 'delivery_unknown') ORDER BY capturedAt ASC")
     fun getPendingServerRecords(): List<PhotoRecordEntity>
 
@@ -34,6 +43,12 @@ interface PhotoRecordDao {
 
     @Query("UPDATE photo_records SET photoContextAck = 'conflict' WHERE id = :id AND jobId IS NOT NULL AND photoContext = :context AND (photoContextAck IS NULL OR photoContextAck = 'unresolved')")
     fun markPhotoContextConflict(id: String, context: String): Int
+
+    @Query("UPDATE photo_records SET photoContextAck = 'invalid_context' WHERE id = :id AND jobId IS NOT NULL AND photoContext = :context AND (photoContextAck IS NULL OR photoContextAck = 'unresolved')")
+    fun markPhotoContextInvalid(id: String, context: String): Int
+
+    @Query("UPDATE photo_records SET photoContextAck = NULL WHERE photoPath = :path AND jobId IS NOT NULL AND photoContextAck = 'invalid_context'")
+    fun retryInvalidPhotoContext(path: String): Int
 
     @Query("UPDATE photo_records SET status = 'queued', error = NULL, queuedInUploadQueue = 1, manualRetryApproved = 1 WHERE photoPath = :path AND jobId IS NULL AND chatDeleted = 0 AND status IN ('error', 'needs_review', 'retrying')")
     fun retryLocal(path: String): Int

@@ -231,4 +231,30 @@ class QueueDatabaseTest {
             }
         }
     }
+
+    @Test fun invalidContextDoesNotBlockLaterPhotosAndCanBeRetried() {
+        for (failure in listOf<IOException>(CookApiHttpException(422), InvalidSavedPhotoContextException(IllegalArgumentException()))) {
+            Room.inMemoryDatabaseBuilder(context, PilotDatabase::class.java).build().use { db ->
+                val dao = db.photoRecordDao()
+                dao.insert(record().copy(id = "one", photoPath = "/one", jobId = "job-one", photoContext = "original"))
+                dao.insert(record().copy(id = "two", photoPath = "/two", jobId = "job-two", photoContext = "next",
+                    capturedAt = "2026-09-04T14:01:00Z"))
+                val calls = mutableListOf<String>()
+                PhotoContextSynchronizer.sync(dao) { item ->
+                    calls.add(item.id)
+                    if (item.id == "one") throw failure
+                    "resolved"
+                }
+                assertEquals(listOf("one", "two"), calls)
+                assertEquals("original", dao.getByPhotoPath("/one")!!.photoContext)
+                assertEquals("invalid_context", dao.getByPhotoPath("/one")!!.photoContextAck)
+                assertEquals("resolved", dao.getByPhotoPath("/two")!!.photoContextAck)
+                assertTrue(dao.getPendingPhotoContexts().isEmpty())
+                assertEquals(1, dao.retryInvalidPhotoContext("/one"))
+                assertEquals(listOf("one"), dao.getPendingPhotoContexts().map { it.id })
+                PhotoContextSynchronizer.sync(dao) { "resolved" }
+                assertEquals("resolved", dao.getByPhotoPath("/one")!!.photoContextAck)
+            }
+        }
+    }
 }

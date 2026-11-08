@@ -91,6 +91,18 @@ class SupportTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             telemetry({**self.data, "last_event": "https://secret/?token=abc"})
 
+    def test_optional_cook_diagnostics_are_aggregated_and_privacy_checked(self):
+        cook = dict(shift_state="cached_today", offline_sync="waiting", employees_pending=2,
+                    shifts_pending=1, contexts_pending=3, contexts_conflict=1, contexts_invalid=1)
+        self.store.heartbeat(self.device, self.token(), self.data, cook=cook)
+        self.assertEqual(cook, json.loads(self.store.inventory()[0]["diagnostics"])["cook"])
+        for changed in ({**cook, "name": "private"}, {**cook, "shift_state": "name"},
+                        {**cook, "employees_pending": True}, {**cook, "contexts_invalid": -1}):
+            with self.assertRaises(ValueError):
+                self.store.heartbeat(self.device, self.token(), self.data, cook=changed)
+        self.beat()
+        self.assertNotIn("cook", json.loads(self.store.inventory()[0]["diagnostics"]))
+
     def test_release_only_official_https_and_exact_package(self):
         for url in ("http://194-55-235-241.sslip.io/downloads/test.apk", "https://evil.test/test.apk",
                     "https://194-55-235-241.sslip.io@evil.test/downloads/test.apk",
