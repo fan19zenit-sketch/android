@@ -110,6 +110,9 @@ class CookOfflineDatabaseTest {
         assertEquals("Повар · уточнить имя", CookEmployeeLabels.label(first, listOf(second, first)))
         assertFalse(CookEmployeeLabels.ambiguous(first, listOf(first)))
         assertEquals("Повар", CookEmployeeLabels.label(first, listOf(first)))
+        assertTrue(CookEmployeeLabels.nameExists("  ПОВАР  ", listOf(first)))
+        assertFalse(CookEmployeeLabels.nameExists("Повар Иванов", listOf(first)))
+        assertFalse(CookEmployeeLabels.nameExists("  ", listOf(first)))
     }
 
     @Test fun requestAndProvisionalConflictsNeverReplaceStoredData() {

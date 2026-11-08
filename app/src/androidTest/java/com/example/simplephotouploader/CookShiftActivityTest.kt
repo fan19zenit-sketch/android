@@ -98,6 +98,36 @@ class CookShiftActivityTest {
         }
     }
 
+    @Test fun duplicateEmployeeNameCanBeCorrectedWithoutCreatingAnotherRecord() {
+        val uniqueName = "Новый ${UUID.randomUUID().toString().take(8)}"
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_offline", true)
+        ActivityScenario.launch<CookShiftActivity>(intent).use {
+            val deadline = SystemClock.elapsedRealtime() + 15_000
+            var loaded = false
+            while (!loaded && SystemClock.elapsedRealtime() < deadline) {
+                try { onView(withText("Добавить сотрудника")).check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                    androidx.test.espresso.matcher.ViewMatchers.isDisplayed())); loaded = true }
+                catch (_: androidx.test.espresso.NoMatchingViewException) { SystemClock.sleep(100) }
+            }
+            assertTrue(loaded)
+            onView(withText("Добавить сотрудника")).perform(scrollTo(), click())
+            onView(withHint("Имя сотрудника")).perform(replaceText("  ПОВАР 1  "), closeSoftKeyboard())
+            onView(withText("Добавить")).perform(click())
+            onView(withHint("Имя сотрудника")).check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                androidx.test.espresso.matcher.ViewMatchers.hasErrorText(
+                    "Такое имя уже есть. Для другого сотрудника укажите отличающееся имя.")))
+            onView(withHint("Имя сотрудника")).perform(replaceText(uniqueName), closeSoftKeyboard())
+            onView(withText("Добавить")).perform(click())
+            var appeared = false
+            while (!appeared && SystemClock.elapsedRealtime() < deadline) {
+                try { onView(withText(uniqueName)).check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                    androidx.test.espresso.matcher.ViewMatchers.isDisplayed())); appeared = true }
+                catch (_: androidx.test.espresso.NoMatchingViewException) { SystemClock.sleep(100) }
+            }
+            assertTrue(appeared)
+        }
+    }
+
     @Test fun previewShiftCanBeConfirmedAndRestored() {
         ActivityScenario.launch(CookShiftActivity::class.java).use {
             val deadline = SystemClock.elapsedRealtime() + 10_000

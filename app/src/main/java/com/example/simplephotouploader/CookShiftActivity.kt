@@ -12,6 +12,7 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.CoroutineScope
@@ -204,6 +205,10 @@ class CookShiftActivity : AppCompatActivity() {
         content.removeAllViews()
         content.addView(label("Смена", 30f))
         if (offlineMode) content.addView(label("Нет сети", 16f, Color.rgb(255, 180, 210)))
+        if (employees.any { CookEmployeeLabels.ambiguous(it, employees) }) {
+            content.addView(label("Одинаковые имена: попросите управляющего уточнить сотрудников в общем списке.",
+                16f, Color.rgb(255, 180, 210)))
+        }
         content.addView(label("Повара", 20f))
         employees.filter { "cook" in it.roles }.forEach { employee ->
             content.addView(CheckBox(this).apply {
@@ -249,14 +254,31 @@ class CookShiftActivity : AppCompatActivity() {
         val name = EditText(this).apply { hint = "Имя сотрудника"; setSingleLine() }
         val choices = arrayOf("Повар", "Оператор")
         val selected = booleanArrayOf(true, false)
-        AlertDialog.Builder(this).setTitle("Сотрудник").setView(name)
+        val dialog = AlertDialog.Builder(this).setTitle("Сотрудник").setView(name)
             .setMultiChoiceItems(choices, selected) { _, index, value -> selected[index] = value }
-            .setNegativeButton("Отмена", null).setPositiveButton("Добавить") { _, _ ->
+            .setNegativeButton("Отмена", null).setPositiveButton("Добавить", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val text = name.text.toString().trim().replace(Regex("\\s+"), " ")
                 val roles = listOfNotNull("cook".takeIf { selected[0] }, "operator".takeIf { selected[1] })
-                if (text.isBlank() || roles.isEmpty()) return@setPositiveButton
-                val currentBinding = binding ?: return@setPositiveButton
-                if (busy) return@setPositiveButton
+                if (text.isBlank()) {
+                    name.error = "Укажите имя сотрудника"
+                    return@setOnClickListener
+                }
+                if (roles.isEmpty()) {
+                    Toast.makeText(this, "Выберите должность", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val currentBinding = binding ?: return@setOnClickListener
+                if (busy) return@setOnClickListener
+                val pending = CookPendingEmployeeStore(CookLocalSession.preferences(applicationContext)).load()
+                val isPendingRetry = pending != null && pending.binding == currentBinding && pending.name == text &&
+                    pending.roles == roles && !offlineMode && !preview
+                if (!isPendingRetry && CookEmployeeLabels.nameExists(text, employees)) {
+                    name.error = "Такое имя уже есть. Для другого сотрудника укажите отличающееся имя."
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
                 busy = true
                 scope.launch {
                     val result = runCatching { withContext(Dispatchers.IO) {
@@ -288,7 +310,9 @@ class CookShiftActivity : AppCompatActivity() {
                     result.onSuccess { added -> employees = employees.filterNot { it.id == added.id } + added; render() }
                         .onFailure { if (it is CancellationException) throw it else showError(it.message ?: "Не удалось добавить сотрудника") }
                 }
-            }.show()
+            }
+        }
+        dialog.show()
     }
 
     private fun saveShift() {

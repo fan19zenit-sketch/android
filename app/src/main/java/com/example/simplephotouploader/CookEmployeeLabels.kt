@@ -11,6 +11,9 @@ object CookEmployeeLabels {
     fun ambiguous(person: CookEmployee, roster: List<CookEmployee>): Boolean =
         roster.any { it.id != person.id && normalized(it.displayName) == normalized(person.displayName) }
 
+    fun nameExists(name: String, roster: List<CookEmployee>): Boolean =
+        normalized(name).isNotEmpty() && roster.any { normalized(it.displayName) == normalized(name) }
+
     fun label(person: CookEmployee, roster: List<CookEmployee>): String {
         return if (ambiguous(person, roster)) "${person.displayName} · уточнить имя" else person.displayName
     }
