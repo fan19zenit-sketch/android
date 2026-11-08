@@ -2,11 +2,12 @@ param(
     [Parameter(Mandatory = $true)][string]$BackendRepo,
     [Parameter(Mandatory = $true)][string]$Emulator,
     [switch]$Background,
-    [switch]$OfflineBackground
+    [switch]$OfflineBackground,
+    [switch]$Camera
 )
 
 $ErrorActionPreference = 'Stop'
-if ($Background -and $OfflineBackground) { throw 'Choose only one background scenario.' }
+if (@($Background, $OfflineBackground, $Camera).Where({ $_ }).Count -gt 1) { throw 'Choose only one scenario.' }
 if ($Emulator -notmatch '^emulator-[0-9]+$') { throw 'Only an explicitly named Android emulator is permitted.' }
 if (-not $env:ANDROID_HOME) { throw 'Set ANDROID_HOME to the Android SDK.' }
 $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
@@ -94,7 +95,9 @@ try {
     $locationPushed = $true
     $testStarted = $true
     if (-not $Background -and -not $OfflineBackground) {
-        Invoke-IntegrationTest 'com.example.simplephotouploader.CookRealBackendIntegrationTest'
+        $class = if ($Camera) { 'com.example.simplephotouploader.CookCameraBackendIntegrationTest' }
+                 else { 'com.example.simplephotouploader.CookRealBackendIntegrationTest' }
+        Invoke-IntegrationTest $class
     } else {
         & (Join-Path $PSScriptRoot '..\gradlew.bat') :app:assembleCleanLocaltest :app:assembleCleanLocaltestAndroidTest `
             -PlocalIntegration=true --offline --no-daemon --max-workers=2
