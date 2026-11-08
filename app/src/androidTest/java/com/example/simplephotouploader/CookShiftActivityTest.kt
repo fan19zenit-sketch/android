@@ -150,6 +150,39 @@ class CookShiftActivityTest {
         }
     }
 
+    @Test fun universalCanBeSelectedAsCookAndOperatorWithOneIdentity() {
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_universal", true)
+        ActivityScenario.launch<CookShiftActivity>(intent).use { scenario ->
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            fun descendants(view: View): List<View> = listOf(view) +
+                if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
+            var count = 0
+            while (count != 2 && SystemClock.elapsedRealtime() < deadline) {
+                scenario.onActivity { activity ->
+                    count = descendants(activity.window.decorView).filterIsInstance<CheckBox>()
+                        .count { it.text.toString() == "Повар 1" }
+                }
+                if (count != 2) SystemClock.sleep(100)
+            }
+            assertEquals(2, count)
+            scenario.onActivity { activity ->
+                descendants(activity.window.decorView).filterIsInstance<CheckBox>()
+                    .filter { it.text.toString() == "Повар 1" }[0].performClick()
+            }
+            scenario.onActivity { activity ->
+                descendants(activity.window.decorView).filterIsInstance<CheckBox>()
+                    .filter { it.text.toString() == "Повар 1" }[1].performClick()
+            }
+            onView(withText("Подтвердить смену")).perform(scrollTo(), click())
+            while (CookLocalSession.cache(context).load() == null && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
+            val saved = CookLocalSession.cache(context).load()
+            assertNotNull(saved)
+            assertEquals(listOf("cook-1"), saved!!.shift.cooks)
+            assertEquals(listOf("cook-1"), saved.shift.operators)
+            assertEquals("cook-1", saved.shift.mainCookId)
+        }
+    }
+
     @Test fun removingMainWithSeveralCooksRequiresExplicitReplacement() {
         val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_three_cooks", true)
         ActivityScenario.launch<CookShiftActivity>(intent).use { scenario ->

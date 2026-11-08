@@ -102,7 +102,8 @@ class CookShiftActivity : AppCompatActivity() {
                 withContext(Dispatchers.IO) {
                     val loaded = if (preview) {
                         val secondName = if (intent.getBooleanExtra("test_duplicate_names", false)) "Повар 1" else "Повар 2"
-                        val fixture = listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")),
+                        val firstRoles = if (intent.getBooleanExtra("test_universal", false)) listOf("cook", "operator") else listOf("cook")
+                        val fixture = listOf(CookEmployee("cook-1", "Повар 1", firstRoles),
                             CookEmployee("cook-2", secondName, listOf("cook")),
                             CookEmployee("operator-1", "Оператор 1", listOf("operator"))) +
                             if (intent.getBooleanExtra("test_three_cooks", false))
