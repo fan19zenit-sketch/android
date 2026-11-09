@@ -65,7 +65,7 @@ class CookCameraFlowTest {
         val existing = dao.getAllHistory().map { it.id }.toSet()
         ActivityScenario.launch(MainActivity::class.java).use {
             await { visible("Смена") }
-            onView(withText("Смена")).perform(click())
+            onView(withText("Смена")).perform(scrollTo(), click())
             await { visible("Повар 1") }
             onView(withText("Повар 1")).perform(click())
             onView(withText("Повар 2")).perform(click())
@@ -88,7 +88,7 @@ class CookCameraFlowTest {
         val existing = dao.getAllHistory().map { it.id }.toSet()
         ActivityScenario.launch(MainActivity::class.java).use {
             await { visible("Смена") }
-            onView(withText("Смена")).perform(click())
+            onView(withText("Смена")).perform(scrollTo(), click())
             await { visible("Повар 1") }
             onView(withText("Повар 1")).perform(click())
             onView(withText("Оператор 1")).perform(scrollTo(), click())
