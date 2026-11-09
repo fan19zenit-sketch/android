@@ -29,7 +29,7 @@ object ConnectionPolicy {
         val job = "/upload-jobs/[0-9a-fA-F-]{36}"
         val allowed = queryAllowed && when (method) {
             "POST" -> path in setOf("/register-device", "/upload-v2", "/cook-v2/upload",
-                "/cook-v2/binding/initialize", "/cook-v2/employees/manual", "/cook-v2/shifts")
+                "/cook-v2/binding/initialize", "/cook-v2/employees/manual", "/cook-v2/shifts", "/cook-v2/shift-presence")
             "GET" -> Regex(job).matches(path) || path in setOf("/cook-v2/capabilities", "/cook-v2/binding",
                 "/cook-v2/employees", "/cook-v2/shifts")
             "PUT" -> path == "/cook-v2/photo-context"

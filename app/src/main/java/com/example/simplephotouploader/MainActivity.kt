@@ -106,6 +106,7 @@ class MainActivity : AppCompatActivity() {
         if (imageCapture == null && !cameraStarting &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera()
         RemoteSupport.schedule(this)
+        CookShiftPresenceWorker.enqueueNow(applicationContext)
         RemoteSupport.checkImmediately(applicationContext)
         UploadCoordinator.kick(applicationContext)
         if (BuildConfig.FLAVOR == "clean") refreshCookWorkflow()
@@ -418,6 +419,7 @@ class MainActivity : AppCompatActivity() {
               }
               refreshCookPanel()
               maybePromptForShift()
+              if (verified != null) CookShiftPresenceWorker.enqueueNow(applicationContext)
             }
             applyLocalState()
             if (!preview) {

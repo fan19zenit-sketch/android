@@ -36,5 +36,5 @@ class CookPendingShiftStore(private val preferences: SharedPreferences) {
 
     fun clear(): Boolean = preferences.edit().remove(KEY).commit()
 
-    companion object { private const val KEY = "pending_shift_v1" }
+    companion object { internal const val KEY = "pending_shift_v1" }
 }

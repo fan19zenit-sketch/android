@@ -315,4 +315,26 @@ class CookOfflineDatabaseTest {
         } catch (_: IllegalArgumentException) { }
         assertEquals(before, selection.load())
     }
+
+    @Test fun diagnosticsUsesActiveOfflineShiftBeforeAndAfterSync() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = context.getSharedPreferences("offline-diagnostics-${UUID.randomUUID()}", Context.MODE_PRIVATE)
+        val binding = CookBinding("branch", 1, "Europe/Moscow")
+        val activeScope = CookLocalSession.offlineScope(context, binding)
+        val person = employee().copy(backendUrl = activeScope.backendUrl, deviceUuid = activeScope.deviceUuid)
+        val localShift = shift().copy(backendUrl = activeScope.backendUrl, deviceUuid = activeScope.deviceUuid)
+        val roster = listOf(CookEmployee(employeeId, "Повар", listOf("cook")),
+            CookEmployee("operator", "Оператор", listOf("operator")))
+        dao.enqueueEmployee(person)
+        dao.enqueueShift(localShift)
+        assertTrue(CookDeviceRosterCache(prefs).save(binding, roster))
+        assertTrue(CookOfflineSelectionCache(prefs, dao, activeScope).save(localShift, roster))
+        val now = java.time.Instant.parse("2026-11-06T09:00:00Z")
+        assertEquals("offline_today", RemoteSupport.cookShiftState(context, prefs, dao, now))
+        dao.confirmEmployee(activeScope.backendUrl, activeScope.deviceUuid, "branch", 1, employeeId, "canonical")
+        dao.confirmShift(activeScope.backendUrl, activeScope.deviceUuid, "branch", 1, shiftId, 1)
+        assertEquals("offline_today", RemoteSupport.cookShiftState(context, prefs, dao, now))
+        assertTrue(CookDeviceRosterCache(prefs).saveBinding(binding.copy(revision = 2)))
+        assertEquals("not_available", RemoteSupport.cookShiftState(context, prefs, dao, now))
+    }
 }

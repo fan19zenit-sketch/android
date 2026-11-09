@@ -13,6 +13,7 @@ class App : Application() {
         super.onCreate()
         instance = this
         if (BuildConfig.BUILD_TYPE == "localtest") return
+        CookShiftPresenceWorker.schedule(this)
         val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
         if (prefs.getString(AppPrefs.KEY_BACKEND_URL, null)?.trimEnd('/') == AppPrefs.LEGACY_BACKEND_URL) {
             prefs.edit().putString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL).apply()

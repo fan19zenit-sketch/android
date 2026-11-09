@@ -71,5 +71,5 @@ class CookShiftCache(private val preferences: SharedPreferences) {
 
     private fun strings(array: JSONArray): List<String> = (0 until array.length()).map { array.getString(it) }
 
-    companion object { private const val KEY = "confirmed_shift_v1" }
+    companion object { internal const val KEY = "confirmed_shift_v1" }
 }

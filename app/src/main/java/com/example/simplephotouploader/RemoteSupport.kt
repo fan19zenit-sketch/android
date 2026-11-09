@@ -116,12 +116,7 @@ object RemoteSupport {
         val photo = PilotDatabase.get(context).photoRecordDao()
         val offline = CookOfflineDatabase.get(context).queue()
         val preferences = CookLocalSession.preferences(context)
-        val cached = CookLocalSession.cache(context).load()
-        val shiftState = when {
-            CookPendingShiftStore(preferences).load() != null -> "pending"
-            cached != null && CookShiftPolicy.usable(cached.shift, cached.binding, cached.binding, Instant.now()) -> "cached_today"
-            else -> "not_available"
-        }
+        val shiftState = cookShiftState(context, preferences, offline, Instant.now())
         val syncState = preferences.getString(CookOfflineSyncWorker.SYNC_STATE, "idle")
             .takeIf { it in setOf("idle", "waiting", "attention") } ?: "attention"
         return JSONObject().put("shift_state", shiftState).put("offline_sync", syncState)
@@ -130,6 +125,26 @@ object RemoteSupport {
             .put("contexts_pending", photo.pendingContextCount())
             .put("contexts_conflict", photo.contextConflictCount())
             .put("contexts_invalid", photo.invalidContextCount())
+    }
+
+    internal fun cookShiftState(context: Context, preferences: android.content.SharedPreferences,
+                                offline: CookOfflineDao, now: Instant): String {
+        val cached = CookShiftCache(preferences).load()
+        val roster = CookDeviceRosterCache(preferences).load()
+        val binding = if (preferences.contains(CookDeviceRosterCache.KEY)) roster?.binding else cached?.binding
+        val hasOffline = preferences.contains(CookOfflineSelectionCache.KEY)
+        val activeOffline = if (binding != null && hasOffline) runCatching {
+            val scope = CookLocalSession.offlineScope(context, binding)
+            CookOfflineSelectionCache(preferences, offline, scope).load()
+                ?.takeIf { CookShiftPolicy.usable(it.shift, binding, it.binding, now) }
+        }.getOrNull() else null
+        val selected = CookShiftSelection.choose(hasOffline, activeOffline, cached)
+        return when {
+            binding != null && selected != null && CookShiftPolicy.usable(selected.shift, binding, selected.binding, now) ->
+                if (selected.offlineShift != null) "offline_today" else "cached_today"
+            CookPendingShiftStore(preferences).load() != null -> "pending"
+            else -> "not_available"
+        }
     }
 
     internal fun post(path: String, body: JSONObject, token: String? = null,

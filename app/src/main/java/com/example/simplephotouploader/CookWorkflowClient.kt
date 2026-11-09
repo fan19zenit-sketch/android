@@ -10,7 +10,7 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class CookCapabilities(val roster: Boolean, val shift: Boolean, val photoContext: Boolean) {
+data class CookCapabilities(val roster: Boolean, val shift: Boolean, val photoContext: Boolean, val shiftPresence: Boolean = false) {
     val supportsAttributedCapture: Boolean get() = roster && shift && photoContext
 }
 data class CookEmployee(val id: String, val displayName: String, val roles: List<String>)
@@ -49,7 +49,7 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
 
     fun capabilities(): CookCapabilities? = request("capabilities")?.let {
         if (it.optInt("schemaVersion") != 1) throw IOException("Unsupported Cook API schema")
-        CookCapabilities(it.optBoolean("roster"), it.optBoolean("shift"), it.optBoolean("photoContext"))
+        CookCapabilities(it.optBoolean("roster"), it.optBoolean("shift"), it.optBoolean("photoContext"), it.optBoolean("shiftPresence"))
     }
 
     fun initializeBinding(deviceId: String): CookBinding {
@@ -141,6 +141,14 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
             ?: throw IOException("Missing photo context acknowledgement")
         return PhotoContextAcknowledgement.resolution(acknowledgement, uploadId)
             ?: throw IOException("Photo context was not acknowledged")
+    }
+
+    fun reportShiftPresence(deviceId: String, binding: CookBinding, day: String, state: String, observedAt: String) {
+        val result = request("shift-presence", body = JSONObject().put("deviceUuid", deviceId)
+            .put("branchRef", binding.branchRef).put("bindingRevision", binding.revision)
+            .put("operationalDate", day).put("timezone", requireNotNull(binding.timezone))
+            .put("state", state).put("observedAt", observedAt))
+        if (result?.optBoolean("accepted") != true) throw CookApiProtocolException("Shift presence was not acknowledged")
     }
 
     private fun strings(array: JSONArray): List<String> = (0 until array.length()).map { array.getString(it) }

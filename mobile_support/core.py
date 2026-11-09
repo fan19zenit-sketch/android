@@ -105,7 +105,7 @@ def cook_telemetry(value):
     counters = {"employees_pending", "shifts_pending", "contexts_pending", "contexts_conflict", "contexts_invalid"}
     if not isinstance(value, dict) or set(value) != counters | {"shift_state", "offline_sync"}:
         raise ValueError("Invalid cook diagnostics fields")
-    if value["shift_state"] not in {"pending", "cached_today", "not_available"}:
+    if value["shift_state"] not in {"pending", "cached_today", "offline_today", "not_available"}:
         raise ValueError("Invalid shift state")
     if value["offline_sync"] not in {"idle", "waiting", "attention"}:
         raise ValueError("Invalid offline sync state")

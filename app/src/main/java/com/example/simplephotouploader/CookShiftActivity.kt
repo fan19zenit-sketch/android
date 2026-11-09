@@ -379,6 +379,7 @@ class CookShiftActivity : AppCompatActivity() {
                     }
                 }
                 check(store.clear()) { "Не удалось сохранить подтверждение смены" }
+                CookShiftPresenceWorker.enqueueNow(applicationContext)
             } }
             busy = false
             result.onSuccess { setResult(RESULT_OK); finish() }

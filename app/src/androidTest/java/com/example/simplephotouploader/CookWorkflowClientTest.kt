@@ -17,6 +17,25 @@ class CookWorkflowClientTest {
     private fun response(request: Request, code: Int, body: String) = Response.Builder().request(request)
         .protocol(Protocol.HTTP_1_1).code(code).message("test").body(body.toResponseBody()).build()
 
+    @Test fun shiftPresenceReportsOnlyBoundStateWithoutStaffNames() {
+        val client = CookWorkflowClient("https://example.test") { request ->
+            assertEquals("/cook-v2/shift-presence", request.url.encodedPath)
+            val json = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+            assertEquals("device-a", json.getString("deviceUuid"))
+            assertEquals("branch", json.getString("branchRef"))
+            assertEquals(2, json.getInt("bindingRevision"))
+            assertEquals("unconfirmed", json.getString("state"))
+            assertFalse(json.has("employees"))
+            response(request, 200, """{"accepted":true}""")
+        }
+        client.reportShiftPresence("device-a", CookBinding("branch", 2, "Europe/Moscow"), "2026-11-08",
+            "unconfirmed", "2026-11-08T09:00:00Z")
+        assertEquals("confirmed", CookShiftPresenceWorker.reportState("offline_today", false))
+        assertEquals("confirmed", CookShiftPresenceWorker.reportState("cached_today", false))
+        assertEquals("unknown", CookShiftPresenceWorker.reportState("not_available", true))
+        assertEquals("unconfirmed", CookShiftPresenceWorker.reportState("not_available", false))
+    }
+
     @Test fun disabledServerDoesNotClaimCapability() {
         val client = CookWorkflowClient("https://example.test") { response(it, 404, "{}") }
         assertNull(client.capabilities())
