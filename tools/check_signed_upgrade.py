@@ -208,12 +208,16 @@ def main(old_apk, candidate):
         try:
             adb('shell', 'am', 'start', '-n', PACKAGE + '/com.example.simplephotouploader.MainActivity')
             active_shift_seen = False
+            hierarchy = ''
             for _ in range(8):
                 time.sleep(2)
-                if 'FixtureCook' in adb('shell', 'uiautomator', 'dump', '/dev/tty', check=False):
+                adb('shell', 'uiautomator', 'dump', '/sdcard/fixture-window.xml', check=False)
+                hierarchy = adb('shell', 'cat', '/sdcard/fixture-window.xml', check=False)
+                if 'FixtureCook' in hierarchy:
                     active_shift_seen = True
                     break
             if not active_shift_seen:
+                print('FIXTURE_SCREEN:', hierarchy[-4000:])
                 raise RuntimeError('fixture current cook was not visible as an active shift')
             deadline = time.monotonic() + 180
             while time.monotonic() < deadline:
