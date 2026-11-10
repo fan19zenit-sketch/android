@@ -115,7 +115,7 @@ class CookShiftActivity : AppCompatActivity() {
                         val expectedScope = CookLocalSession.identity(applicationContext)
                         try {
                             val (client, device) = client()
-                            check(client.capabilities()?.supportsAttributedCapture == true) { "Сервер пока не поддерживает смены" }
+                            check(client.capabilities(device)?.supportsAttributedCapture == true) { "Сервер пока не поддерживает смены" }
                             val current = client.initializeBinding(device)
                             check(current.timezone != null) { "Не настроен часовой пояс филиала" }
                             val roster = requireNotNull(client.roster(device))

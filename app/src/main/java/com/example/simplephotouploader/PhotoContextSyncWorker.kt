@@ -60,7 +60,7 @@ class PhotoContextSyncWorker(context: Context, params: WorkerParameters) : Corou
         if (backend.isBlank() || deviceId.isBlank()) return@withContext Result.retry()
         try {
             val client = CookWorkflowClient(backend)
-            if (client.capabilities()?.photoContext != true) return@withContext Result.retry()
+            if (client.capabilities(deviceId)?.photoContext != true) return@withContext Result.retry()
             PhotoContextSynchronizer.sync(dao, eligible = { PhotoRouteGuard.sameDeviceAndBackend(it, deviceId, backend) }) { item ->
                 client.syncPhotoContext(deviceId, item.id, requireNotNull(item.photoContext))
             }

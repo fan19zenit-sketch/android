@@ -430,7 +430,7 @@ class MainActivity : AppCompatActivity() {
                         val device = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
                         if (backend.isBlank() || device.isBlank()) null else {
                             val client = CookWorkflowClient(backend)
-                            if (client.capabilities()?.supportsAttributedCapture != true) null else {
+                            if (client.capabilities(device)?.supportsAttributedCapture != true) null else {
                                 val binding = client.initializeBinding(device)
                                 ensureActive()
                                 if (binding.timezone == null || CookLocalSession.identity(applicationContext) != expectedScope) null

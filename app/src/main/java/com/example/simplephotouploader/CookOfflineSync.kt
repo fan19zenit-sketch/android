@@ -13,7 +13,7 @@ class CookOfflineSync(private val dao: CookOfflineDao, private val client: CookW
     fun sync(scope: CookOfflineScope): CookOfflineSyncResult {
         require(scope.backendUrl.isNotBlank() && scope.deviceUuid.isNotBlank())
         if (!client.matchesBackend(scope.backendUrl)) throw CookOfflineConflict("Backend changed")
-        if (client.capabilities()?.supportsAttributedCapture != true) throw IOException("Server does not support attributed capture")
+        if (client.capabilities(scope.deviceUuid)?.supportsAttributedCapture != true) throw IOException("Server does not support attributed capture")
         if (client.initializeBinding(scope.deviceUuid) != scope.binding) throw CookOfflineConflict("Device binding changed")
         val binding = scope.binding
         var employees = 0

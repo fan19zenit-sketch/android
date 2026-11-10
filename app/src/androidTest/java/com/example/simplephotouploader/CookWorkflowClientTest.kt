@@ -41,6 +41,15 @@ class CookWorkflowClientTest {
         assertNull(client.capabilities())
     }
 
+    @Test fun capabilityRequestIdentifiesDeviceForBranchRollout() {
+        val client = CookWorkflowClient("https://example.test") { request ->
+            assertEquals("device-a", request.url.queryParameter("deviceUuid"))
+            response(request, 200, """{"schemaVersion":1,"roster":true,"shift":true,"photoContext":true,"shiftPresence":true}""")
+        }
+        assertTrue(client.capabilities("device-a")!!.supportsAttributedCapture)
+        assertTrue(client.capabilities("device-a")!!.shiftPresence)
+    }
+
     @Test fun rosterAndManualCreationUseCorrectScopedEndpoints() {
         val paths = mutableListOf<String>()
         val client = CookWorkflowClient("https://example.test") { request ->

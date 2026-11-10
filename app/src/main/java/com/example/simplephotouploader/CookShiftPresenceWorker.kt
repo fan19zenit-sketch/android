@@ -57,7 +57,7 @@ class CookShiftPresenceWorker(context: Context, params: WorkerParameters) : Coro
             val device = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
             if (backend.isBlank() || device.isBlank()) return@withContext Result.success()
             val client = CookWorkflowClient(backend)
-            if (client.capabilities()?.shiftPresence != true) return@withContext Result.success()
+            if (client.capabilities(device)?.shiftPresence != true) return@withContext Result.success()
             val now = Instant.now()
             val dao = CookOfflineDatabase.get(applicationContext).queue()
             val state = RemoteSupport.cookShiftState(applicationContext, local, dao, now)

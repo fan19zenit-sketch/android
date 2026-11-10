@@ -113,7 +113,7 @@ object UploadCoordinator {
             try {
                 if (item.photoContext != null) {
                     val client = CookWorkflowClient(backend)
-                    if (client.capabilities()?.supportsAttributedCapture != true) {
+                    if (client.capabilities(deviceId)?.supportsAttributedCapture != true) {
                         throw IOException("Waiting for a server that supports photo attribution")
                     }
                     if (!PhotoRouteGuard.sameBinding(item, client.initializeBinding(deviceId))) {

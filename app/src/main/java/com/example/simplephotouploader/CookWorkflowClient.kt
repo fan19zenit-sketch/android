@@ -47,7 +47,8 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         }
     }
 
-    fun capabilities(): CookCapabilities? = request("capabilities")?.let {
+    fun capabilities(deviceId: String? = null): CookCapabilities? = request("capabilities",
+        deviceId?.takeIf { it.isNotBlank() }?.let { mapOf("deviceUuid" to it) } ?: emptyMap())?.let {
         if (it.optInt("schemaVersion") != 1) throw IOException("Unsupported Cook API schema")
         CookCapabilities(it.optBoolean("roster"), it.optBoolean("shift"), it.optBoolean("photoContext"), it.optBoolean("shiftPresence"))
     }
