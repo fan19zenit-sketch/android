@@ -23,10 +23,16 @@ jobs:
           mkdir -p upgrade-input
           gh release download android-v3.2.0-unsigned-20261026 --repo "$GITHUB_REPOSITORY" --pattern photo-v-chistotu-3.2.0-update.apk --dir upgrade-input
           echo 'beb6026893a9c2d42a2944f4d11dcd98162151a1b6d214c834d8bc18692053e3  upgrade-input/photo-v-chistotu-3.2.0-update.apk' | sha256sum -c -
+      - name: Download verified copy of the published 3.3.3 candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download android-upgrade-test-fixtures-20261110 --repo "$GITHUB_REPOSITORY" --pattern photo-v-chistotu-3.3.3-9221d37.apk --dir upgrade-input
+          echo '7578a1fb4897769d732a2fd3033df6224df3dd7a28de0f17c64b444b4b6c537d  upgrade-input/photo-v-chistotu-3.3.3-9221d37.apk' | sha256sum -c -
       - uses: actions/upload-artifact@v4
         with:
           name: previous-signed-apk
-          path: upgrade-input/photo-v-chistotu-3.2.0-update.apk
+          path: upgrade-input/*.apk
           retention-days: 1
   signed-upgrade:
     needs: previous-apk
@@ -40,10 +46,10 @@ jobs:
         with:
           name: previous-signed-apk
           path: upgrade-input
-      - name: Download the exact published 3.3.3 candidate
+      - name: Recheck both signed fixtures
         run: |
-          curl --fail --location --silent --show-error 'https://app.sushigohub.ru/photo-downloads/photo-v-chistotu-3.3.3-9221d37.apk' -o upgrade-input/candidate.apk
-          echo '7578a1fb4897769d732a2fd3033df6224df3dd7a28de0f17c64b444b4b6c537d  upgrade-input/candidate.apk' | sha256sum -c -
+          echo 'beb6026893a9c2d42a2944f4d11dcd98162151a1b6d214c834d8bc18692053e3  upgrade-input/photo-v-chistotu-3.2.0-update.apk' | sha256sum -c -
+          echo '7578a1fb4897769d732a2fd3033df6224df3dd7a28de0f17c64b444b4b6c537d  upgrade-input/photo-v-chistotu-3.3.3-9221d37.apk' | sha256sum -c -
       - name: Enable emulator acceleration on the disposable runner
         run: sudo chmod a+rw /dev/kvm
       - uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
@@ -53,4 +59,4 @@ jobs:
           arch: x86_64
           ram-size: 2048M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
-          script: python3 tools/check_signed_upgrade.py upgrade-input/photo-v-chistotu-3.2.0-update.apk upgrade-input/candidate.apk
+          script: python3 tools/check_signed_upgrade.py upgrade-input/photo-v-chistotu-3.2.0-update.apk upgrade-input/photo-v-chistotu-3.3.3-9221d37.apk
