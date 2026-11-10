@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily photo mobile support backup
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=600
+Persistent=true
+Unit=photo-mobile-support-backup.service
+
+[Install]
+WantedBy=timers.target

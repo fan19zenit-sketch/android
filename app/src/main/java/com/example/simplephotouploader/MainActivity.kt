@@ -4,382 +4,527 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
-import android.widget.TextView
 import android.view.View
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
+import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
-import org.json.JSONArray
+import kotlinx.coroutines.*
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.Instant
+import java.time.ZoneId
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : AppCompatActivity() {
-
     companion object {
-        private const val TAG = "MainActivity"
+        private val captures = CaptureGate()
+        private val cookSelection = CookCaptureSelection()
+        private var selectedShift: CachedCookShift? = null
+        private var selectedShiftScope: String? = null
+        private val unassignedSelection = CookUnassignedSelection()
     }
-
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
     private lateinit var captureButton: View
     private lateinit var settingsButton: View
-    private lateinit var imageCapture: ImageCapture
-
-    private val client = OkHttpClient.Builder().build()
-    private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val inProcess = AtomicBoolean(false)
-    private var prefsListener: android.content.SharedPreferences.OnSharedPreferenceChangeListener? = null
-
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                startCamera()
-            } else {
-                showPermissionError()
-            }
-        }
-
-    private val requestNotificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
+    private var imageCapture: ImageCapture? = null
+    private var cameraError = false
+    private var cameraStarting = false
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var refreshJob: Job? = null
+    private var cookMode = false
+    private var currentBinding: CookBinding? = null
+    private var currentBindingScope: String? = null
+    private var lastShiftPrompt = ""
+    private var cookRefreshJob: Job? = null
+    private var cookPanelKey = ""
+    private val shiftForm = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (it.resultCode == RESULT_OK) refreshCookWorkflow()
+    }
+    private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        if (it) {
+            startCamera()
+            if (BuildConfig.FLAVOR == "clean") requestNotificationPermissionIfNeeded()
+        } else showPermissionError()
+    }
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
         previewView = findViewById(R.id.previewView)
         statusText = findViewById(R.id.statusText)
         captureButton = findViewById(R.id.captureButton)
         settingsButton = findViewById(R.id.settingsButton)
-
+        if (BuildConfig.FLAVOR == "clean") {
+            cookMode = BuildConfig.BUILD_TYPE == "preview" ||
+                CookLocalSession.preferences(applicationContext).getBoolean("workflow_enabled", false)
+        }
+        captureButton.isEnabled = false
         val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
-        val isCleanApp = packageName == "com.example.photovchistotu"
-        val backendUrl = prefs.getString(AppPrefs.KEY_BACKEND_URL, null)
-        val city = prefs.getString(AppPrefs.KEY_CITY, null)
-        if (backendUrl.isNullOrEmpty() || city.isNullOrEmpty()) {
+        if (BuildConfig.BUILD_TYPE == "preview" && prefs.getString(AppPrefs.KEY_CITY, null).isNullOrBlank()) {
+            prefs.edit().putString(AppPrefs.KEY_CITY, getString(R.string.preview_city)).apply()
+        }
+        if (prefs.getString(AppPrefs.KEY_CITY, null).isNullOrBlank()) {
             startActivity(Intent(this, SetupActivity::class.java))
             finish()
             return
         }
-
-        if (isCameraPermissionGranted()) {
+        findViewById<TextView>(R.id.headerSubtitle)?.text =
+            getString(R.string.camera_city, prefs.getString(AppPrefs.KEY_CITY, "").orEmpty())
+        findViewById<TextView>(R.id.versionText)?.text = getString(R.string.app_version, BuildConfig.VERSION_NAME)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera()
-        } else {
-            requestPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
+            if (BuildConfig.FLAVOR == "clean") requestNotificationPermissionIfNeeded()
+        } else permission.launch(Manifest.permission.CAMERA)
+        if (BuildConfig.FLAVOR != "clean") requestNotificationPermissionIfNeeded()
+        captureButton.setOnClickListener { takePhoto() }
+        settingsButton.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
+    }
 
-        if (isCleanApp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-
-        captureButton.setOnClickListener {
-            takePhotoAndUpload()
-        }
-        settingsButton.setOnClickListener {
-            if (isCleanApp) {
-                startActivity(Intent(this, HistoryActivity::class.java))
-            } else {
-                startActivity(Intent(this, SetupActivity::class.java).apply {
-                    putExtra(SetupActivity.EXTRA_FORCE_EDIT, true)
-                })
-            }
-        }
-
-        if (isCleanApp) {
-            val initialStatus = prefs.getString(AppPrefs.KEY_LAST_STATUS, null)
-                ?: getString(R.string.status_ready)
-            showStatus(mapPilotStatusForDisplay(initialStatus))
-            UploadStatusSyncWorker.enqueueBurst(this)
-
-            prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { changedPrefs, key ->
-                if (key == AppPrefs.KEY_LAST_STATUS) {
-                    val text = changedPrefs.getString(AppPrefs.KEY_LAST_STATUS, null)
-                    if (!text.isNullOrBlank()) {
-                        showStatus(mapPilotStatusForDisplay(text))
-                    }
-                }
-            }
-            prefs.registerOnSharedPreferenceChangeListener(prefsListener)
-
-            if (PhotoQueueStore.hasItems(this)) {
-                PhotoUploadForegroundService.start(this)
-            }
-            refreshHistoryPreview()
-        } else {
-            coroutineScope.launch { processQueue(backendUrl) }
+    private fun requestNotificationPermissionIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (packageName == "com.example.photovchistotu") {
-            refreshHistoryPreview()
+        if (isFinishing) return
+        if (imageCapture == null && !cameraStarting &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera()
+        RemoteSupport.schedule(this)
+        CookShiftPresenceWorker.enqueueNow(applicationContext)
+        RemoteSupport.checkImmediately(applicationContext)
+        UploadCoordinator.kick(applicationContext)
+        if (BuildConfig.FLAVOR == "clean") refreshCookWorkflow()
+        refreshJob = scope.launch {
+            while (isActive) {
+                val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@MainActivity) }
+                val queued = items.count { it.queuedInUploadQueue }
+                val server = items.count { it.status in setOf("uploaded_to_server", "sending_to_chat") }
+                val issues = items.count { it.status in setOf("error", "needs_review", "delivery_unknown") }
+                val shiftSync = if (cookMode) CookLocalSession.preferences(this@MainActivity)
+                    .getString(CookOfflineSyncWorker.SYNC_STATE, null) else null
+                statusText.text = when {
+                    cameraError -> getString(R.string.camera_unavailable)
+                    captures.busy -> getString(R.string.camera_capturing)
+                    cookMode && !hasCaptureSelection() -> getString(R.string.camera_shift_required)
+                    filesDir.usableSpace < 200L * 1024 * 1024 -> getString(R.string.camera_low_storage)
+                    RemoteSupport.settings(this@MainActivity).uploadsPaused -> getString(R.string.support_paused)
+                    issues > 0 -> getString(R.string.camera_issues, issues)
+                    shiftSync == "attention" -> getString(R.string.camera_shift_sync_attention)
+                    queued > 0 -> getString(R.string.camera_queued, queued)
+                    server > 0 -> getString(R.string.camera_server, server)
+                    shiftSync == "waiting" -> getString(R.string.camera_shift_sync_pending)
+                    else -> getString(R.string.camera_ready)
+                }
+                captureButton.isEnabled = imageCapture != null && !captures.busy
+                if (cookMode) refreshCookPanel()
+                val thumb = items.firstOrNull()?.thumbnailPath
+                (settingsButton as? ImageView)?.let { image ->
+                    if (image.tag != thumb) {
+                        val bitmap = withContext(Dispatchers.IO) { thumb?.let { BitmapFactory.decodeFile(it) } }
+                        if (bitmap != null) image.setImageBitmap(bitmap)
+                        image.tag = thumb
+                    }
+                }
+                delay(2000)
+            }
         }
+    }
+
+    override fun onPause() {
+        refreshJob?.cancel()
+        super.onPause()
     }
 
     override fun onDestroy() {
-        prefsListener?.let {
-            getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
-                .unregisterOnSharedPreferenceChangeListener(it)
-        }
+        scope.cancel()
         super.onDestroy()
-        coroutineScope.cancel()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        return when (keyCode) {
-            KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                takePhotoAndUpload()
-                true
-            }
-
-            else -> super.onKeyDown(keyCode, event)
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (event?.repeatCount == 0 && RemoteSupport.settings(this).volumeCapture) takePhoto()
+            return true
         }
+        return super.onKeyDown(keyCode, event)
     }
 
-    private fun showStatus(text: String) {
-        runOnUiThread {
-            statusText.text = if (packageName == "com.example.photovchistotu") {
-                text
+    private fun startCamera() {
+        if (cameraStarting) return
+        cameraStarting = true
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            cameraStarting = false
+            if (isDestroyed || isFinishing) return@addListener
+            try {
+                val provider = future.get()
+                val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
+                val capture = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
+                provider.unbindAll()
+                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+                imageCapture = capture
+                cameraError = false
+                captureButton.isEnabled = !captures.busy
+            } catch (error: Exception) {
+                Log.e("Camera", "Camera unavailable", error)
+                cameraError = true
+                RemoteSupport.event(this, "camera_unavailable")
+                statusText.setText(R.string.camera_unavailable)
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun takePhoto() {
+        val camera = imageCapture ?: return
+        if (filesDir.usableSpace < 15L * 1024 * 1024) {
+            AlertDialog.Builder(this).setMessage(R.string.camera_low_storage)
+                .setPositiveButton(R.string.close, null).show()
+            return
+        }
+        val captureId = captures.begin() ?: return
+        val instant = Instant.now()
+        val capturedAt = instant.toString()
+        var reservation: CookCaptureSelection.Reservation? = null
+        var photoContext: String? = null
+        var unassignedAtCapture: CookUnassignedSelection.Reservation? = null
+        if (cookMode) {
+            val binding = scopedBinding()
+            val snapshot = usableShift(binding, instant)
+            if (snapshot == null) {
+                val choice = unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), instant)
+                try {
+                    photoContext = CookPhotoContextFactory.createUnassigned(requireNotNull(binding), requireNotNull(choice).choice, instant)
+                    unassignedAtCapture = choice
+                } catch (_: Exception) {
+                    captures.finish(captureId)
+                    showShiftRequired()
+                    return
+                }
             } else {
-                getString(R.string.status_format, text)
+                reservation = cookSelection.reserve()
+                if (reservation == null) { captures.finish(captureId); return }
+                try {
+                    val employee = snapshot.employees.firstOrNull { it.id == reservation.cookId }
+                    if (employee != null && CookEmployeeLabels.ambiguous(employee, snapshot.employees)) {
+                        cookSelection.finish(reservation, false)
+                        captures.finish(captureId)
+                        showAmbiguousCook()
+                        return
+                    }
+                    val offline = snapshot.offlineShift
+                    photoContext = if (offline != null) {
+                        val selected = reservation.cookId?.let { CookOfflineSelectionCache.cookRef(offline, it) }
+                        CookPhotoContextFactory.createProvisional(requireNotNull(snapshot.offlineScope), offline,
+                            employee, selected, reservation.selectionSource, instant)
+                    } else CookPhotoContextFactory.create(requireNotNull(binding), snapshot.binding,
+                        snapshot.shift, employee, reservation.selectionSource, instant)
+                } catch (error: Exception) {
+                    cookSelection.finish(reservation, false)
+                    captures.finish(captureId)
+                    showShiftRequired()
+                    return
+                }
+            }
+        }
+        val reserved = reservation
+        val frozenContext = photoContext
+        val frozenUnassigned = unassignedAtCapture
+        val capturePrefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
+        val frozenDevice = capturePrefs.getString(AppPrefs.KEY_DEVICE_UUID, null)?.takeIf { it.isNotBlank() }
+        val frozenBackend = capturePrefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL)
+            ?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        val timedOut = AtomicBoolean(false)
+        captureButton.isEnabled = false
+        statusText.setText(R.string.camera_capturing)
+        val folder = File(filesDir, "photos").apply { mkdirs() }
+        val file = File(folder, "IMG_${UUID.randomUUID()}.jpg")
+        val watchdog = App.ioScope.launch {
+            delay(30_000)
+            withContext(Dispatchers.Main) {
+                if (captures.finish(captureId)) {
+                    timedOut.set(true)
+                    reserved?.let { cookSelection.finish(it, false) }
+                    RemoteSupport.event(applicationContext, "camera_timeout")
+                    if (!isDestroyed && !isFinishing) {
+                        imageCapture = null
+                        captureButton.isEnabled = false
+                        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) startCamera()
+                        AlertDialog.Builder(this@MainActivity).setMessage(R.string.camera_capture_timeout)
+                            .setPositiveButton(R.string.close, null).show()
+                    }
+                }
+            }
+        }
+        try {
+            camera.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(),
+                ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
+                    override fun onError(error: ImageCaptureException) {
+                        watchdog.cancel()
+                        if (!timedOut.get()) RemoteSupport.event(applicationContext, "camera_capture_error")
+                        reserved?.let { cookSelection.finish(it, false) }
+                        if (captures.finish(captureId) && !isDestroyed) {
+                            captureButton.isEnabled = imageCapture != null
+                            statusText.setText(R.string.status_error)
+                        }
+                    }
+                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        watchdog.cancel()
+                        // Application scope survives screen rotation while persisting the capture.
+                        App.ioScope.launch {
+                            try {
+                                if (timedOut.get()) {
+                                    val database = PilotDatabase.get(applicationContext)
+                                    database.runInTransaction {
+                                        PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt)
+                                        database.photoRecordDao().getByPhotoPath(file.absolutePath)?.let {
+                                            database.photoRecordDao().update(it.copy(status = "needs_review",
+                                                queuedInUploadQueue = false, error = getString(R.string.camera_late_capture)))
+                                        }
+                                    }
+                                } else {
+                                    PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt, frozenContext,
+                                        frozenDevice.takeIf { frozenContext != null }, frozenBackend.takeIf { frozenContext != null })
+                                    reserved?.let { cookSelection.finish(it, true) }
+                                    withContext(Dispatchers.Main) {
+                                        frozenUnassigned?.let { unassignedSelection.finish(it, true) }
+                                    }
+                                    PhotoUploadWorker.enqueue(applicationContext)
+                                    UploadCoordinator.kick(applicationContext)
+                                }
+                                withContext(Dispatchers.Main) {
+                                    if (!isDestroyed) statusText.setText(R.string.camera_saved)
+                                }
+                            } catch (error: Exception) {
+                                reserved?.let { cookSelection.finish(it, false) }
+                                RemoteSupport.event(applicationContext, "queue_save_error")
+                                Log.e("Camera", "Could not queue saved photo", error)
+                                withContext(Dispatchers.Main) {
+                                    if (!isDestroyed) statusText.setText(R.string.camera_save_error)
+                                }
+                            } finally {
+                                captures.finish(captureId)
+                                withContext(Dispatchers.Main) {
+                                    if (!isDestroyed) captureButton.isEnabled = imageCapture != null && !captures.busy
+                                }
+                            }
+                        }
+                    }
+                })
+        } catch (error: Exception) {
+            watchdog.cancel()
+            reserved?.let { cookSelection.finish(it, false) }
+            captures.finish(captureId)
+            captureButton.isEnabled = imageCapture != null && !captures.busy
+            statusText.setText(R.string.status_error)
+        }
+    }
+
+    private fun showShiftRequired() {
+        if (!isFinishing && !isDestroyed) AlertDialog.Builder(this)
+            .setMessage("Подтвердите состав смены перед съёмкой")
+            .setPositiveButton("Открыть смену") { _, _ -> openShift() }
+            .setNegativeButton(R.string.close, null).show()
+    }
+
+    private fun showAmbiguousCook() {
+        if (!isFinishing && !isDestroyed) AlertDialog.Builder(this)
+            .setMessage("У сотрудников одинаковые имена. Уточните имена в справочнике или выберите «Автор неизвестен».")
+            .setPositiveButton("Автор неизвестен") { _, _ ->
+                cookSelection.selectUnassigned("explicit_unknown")
+                refreshCookPanel()
+            }
+            .setNegativeButton(R.string.close, null).show()
+    }
+
+    private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java))
+
+    private fun hasCaptureSelection(): Boolean {
+        val now = Instant.now()
+        val binding = scopedBinding()
+        return usableShift(binding, now) != null ||
+            unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), now) != null
+    }
+
+    private fun scopedBinding(): CookBinding? = CookScopeGuard.binding(
+        currentBinding, currentBindingScope, CookLocalSession.identity(applicationContext))
+
+    private fun usableShift(binding: CookBinding?, now: Instant): CachedCookShift? {
+        val candidate = selectedShift ?: return null
+        if (!CookScopeGuard.matches(selectedShiftScope, CookLocalSession.identity(applicationContext))) return null
+        return candidate.takeIf { CookShiftPolicy.usable(it.shift, binding, it.binding, now) }
+    }
+
+    private fun styleCookChip(chip: com.google.android.material.chip.Chip) {
+        chip.chipBackgroundColor = android.content.res.ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+            intArrayOf(android.graphics.Color.rgb(186, 56, 127), android.graphics.Color.rgb(48, 48, 48)))
+        chip.setTextColor(android.graphics.Color.WHITE)
+        chip.isAllCaps = false
+    }
+
+    private fun refreshCookWorkflow() {
+        cookRefreshJob?.cancel()
+        cookRefreshJob = scope.launch {
+            val local = CookLocalSession.preferences(applicationContext)
+            val expectedScope = CookLocalSession.identity(applicationContext)
+            val preview = BuildConfig.BUILD_TYPE == "preview"
+            suspend fun applyLocalState(verified: CookBinding? = null) {
+              val state = withContext(Dispatchers.IO) {
+                val cached = CookShiftCache(local).load()
+                val roster = CookDeviceRosterCache(local).load()
+                val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
+                val enabled = preview || local.getBoolean("workflow_enabled", false)
+                val binding = verified ?: if (local.contains(CookDeviceRosterCache.KEY)) roster?.binding else cached?.binding
+                val offline = if (binding != null && local.contains(CookOfflineSelectionCache.KEY)) {
+                    runCatching {
+                        val scope = CookLocalSession.offlineScope(applicationContext, binding)
+                        val dao = CookOfflineDatabase.get(applicationContext).queue()
+                        val active = CookOfflineSelectionCache(local, dao, scope).load()
+                            ?.takeIf { CookShiftPolicy.usable(it.shift, binding, it.binding, Instant.now()) }
+                        if (!preview && (dao.pendingEmployees(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision).isNotEmpty()
+                                || dao.pendingShifts(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision).isNotEmpty())) {
+                            val city = prefs.getString(AppPrefs.KEY_CITY, "").orEmpty()
+                            runCatching { CookOfflineSyncWorker.enqueue(applicationContext, scope, city) }
+                        }
+                        active
+                    }.getOrNull()
+                } else null
+                Triple(enabled, binding, CookShiftSelection.choose(local.contains(CookOfflineSelectionCache.KEY), offline, cached))
+              }
+              if (CookLocalSession.identity(applicationContext) != expectedScope) return
+              cookMode = state.first
+              currentBinding = state.second
+              currentBindingScope = expectedScope
+              val candidate = state.third?.takeIf { it.binding == currentBinding }
+              if (candidate != selectedShift || selectedShiftScope != expectedScope) {
+                selectedShift = candidate
+                selectedShiftScope = expectedScope
+                unassignedSelection.clear()
+                if (candidate != null) cookSelection.setRoster(candidate.shift.cooks.toSet(), candidate.shift.mainCookId)
+              }
+              refreshCookPanel()
+              maybePromptForShift()
+              if (verified != null) CookShiftPresenceWorker.enqueueNow(applicationContext)
+            }
+            applyLocalState()
+            if (!preview) {
+                val verified = withContext(Dispatchers.IO) {
+                    try {
+                        val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
+                        val backend = prefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL).orEmpty()
+                        val device = prefs.getString(AppPrefs.KEY_DEVICE_UUID, "").orEmpty()
+                        if (backend.isBlank() || device.isBlank()) null else {
+                            val client = CookWorkflowClient(backend)
+                            if (client.capabilities(device)?.supportsAttributedCapture != true) null else {
+                                val binding = client.initializeBinding(device)
+                                ensureActive()
+                                if (binding.timezone == null || CookLocalSession.identity(applicationContext) != expectedScope) null
+                                else {
+                                    val cache = CookDeviceRosterCache(local)
+                                    val oldShift = CookShiftCache(local).load()
+                                    val saved = if (!local.contains(CookDeviceRosterCache.KEY) && oldShift?.binding == binding)
+                                        cache.save(binding, oldShift.employees) else cache.saveBinding(binding)
+                                    if (!saved) null else {
+                                        local.edit().putBoolean("workflow_enabled", true).commit()
+                                        binding
+                                    }
+                                }
+                            }
+                        }
+                    } catch (error: CancellationException) { throw error }
+                    catch (_: Exception) { null }
+                }
+                if (verified != null) applyLocalState(verified)
             }
         }
     }
 
-    private fun mapPilotStatusForDisplay(raw: String): String {
-        if (packageName != "com.example.photovchistotu") {
-            return raw
-        }
-        return when (raw) {
-            getString(R.string.status_queued),
-            getString(R.string.status_sending),
-            getString(R.string.status_server_received),
-            getString(R.string.status_uploaded),
-            getString(R.string.history_status_chat),
-            getString(R.string.status_ready) -> getString(R.string.status_ready_next)
-            getString(R.string.status_retrying) -> getString(R.string.status_background_retry)
-            getString(R.string.status_error) -> getString(R.string.status_background_error)
-            else -> raw
-        }
-    }
-
-    private fun refreshHistoryPreview() {
-        val imageView = settingsButton as? ImageView ?: return
-        val latest = PhotoHistoryStore.list(this).firstOrNull()
-        val thumbPath = latest?.thumbnailPath
-        if (!thumbPath.isNullOrBlank()) {
-            val bitmap = BitmapFactory.decodeFile(thumbPath)
-            if (bitmap != null) {
-                imageView.setImageBitmap(bitmap)
-                return
+    private fun maybePromptForShift() {
+        val binding = scopedBinding()
+        val timezone = binding?.timezone ?: return
+        val now = if (BuildConfig.BUILD_TYPE == "preview" && intent.hasExtra("test_shift_clock_ms"))
+            Instant.ofEpochMilli(intent.getLongExtra("test_shift_clock_ms", 0)) else Instant.now()
+        val candidate = usableShift(binding, now)
+        if (cookMode && CookShiftPolicy.needsConfirmation(candidate?.shift, binding, candidate?.binding, timezone, now)) {
+            val day = now.atZone(ZoneId.of(timezone)).toLocalDate().toString()
+            if (lastShiftPrompt != day && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                lastShiftPrompt = day
+                openShift()
             }
         }
-        imageView.setImageResource(android.R.drawable.ic_menu_gallery)
     }
 
-    private fun isCameraPermissionGranted(): Boolean {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
+    private fun refreshCookPanel() {
+        val panel = findViewById<View>(R.id.cookPanel) ?: return
+        panel.visibility = if (cookMode) View.VISIBLE else View.GONE
+        if (!cookMode) return
+        val next = findViewById<TextView>(R.id.cookNext)
+        val choices = findViewById<LinearLayout>(R.id.cookChoices)
+        val binding = scopedBinding()
+        val snapshot = usableShift(binding, Instant.now())
+        val selected = cookSelection.current()
+        val source = if (snapshot != null) cookSelection.currentSource() else
+            unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), Instant.now())?.choice
+        val key = "$snapshot|$selected|$source|$binding"
+        if (key == cookPanelKey) { maybePromptForShift(); return }
+        cookPanelKey = key
+        val nextLabel = when (source) {
+            "explicit_unknown" -> "Следующее фото: автор неизвестен"
+            "shared" -> "Следующее фото: совместная работа"
+            else -> snapshot?.employees?.firstOrNull { it.id == selected }?.let { "Следующее фото: ${CookEmployeeLabels.label(it, snapshot.employees)}" }
+                ?: "Смена не подтверждена"
+        }
+        next.text = if (snapshot?.offlineShift != null) "$nextLabel · локальная смена" else nextLabel
+        choices.removeAllViews()
+        if (snapshot != null) snapshot.shift.cooks.forEach { id ->
+            val employee = snapshot.employees.firstOrNull { it.id == id } ?: return@forEach
+            choices.addView(com.google.android.material.chip.Chip(this).apply {
+                styleCookChip(this)
+                text = CookEmployeeLabels.label(employee, snapshot.employees) + if (id == snapshot.shift.mainCookId) " · основной" else ""
+                isCheckable = true; isChecked = id == selected
+                isEnabled = !CookEmployeeLabels.ambiguous(employee, snapshot.employees)
+                setOnClickListener { cookSelection.selectOneShot(id); refreshCookPanel() }
+            })
+        }
+        if (binding?.timezone != null) {
+            listOf("explicit_unknown" to "Автор неизвестен", "shared" to "Совместно").forEach { (value, title) ->
+                choices.addView(com.google.android.material.chip.Chip(this).apply {
+                    styleCookChip(this)
+                    text = title; isCheckable = true; isChecked = source == value
+                    setOnClickListener {
+                        if (snapshot != null) cookSelection.selectUnassigned(value)
+                        else unassignedSelection.select(value, binding, CookLocalSession.identity(applicationContext), Instant.now())
+                        refreshCookPanel()
+                    }
+                })
+            }
+        }
+        choices.addView(com.google.android.material.chip.Chip(this).apply { styleCookChip(this); text = "Смена"; setOnClickListener { openShift() } })
+        maybePromptForShift()
     }
 
     private fun showPermissionError() {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.permission_required_title)
+        AlertDialog.Builder(this).setTitle(R.string.permission_required_title)
             .setMessage(R.string.permission_required_message)
             .setPositiveButton(R.string.open_settings) { _, _ ->
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                     data = android.net.Uri.fromParts("package", packageName, null)
                 })
-            }
-            .setNegativeButton(R.string.close) { _, _ -> finish() }
-            .setCancelable(false)
-            .show()
-    }
-
-    private fun startCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder()
-                .build()
-                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
-
-            imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .build()
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-            try {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
-                showStatus(getString(R.string.status_ready))
-            } catch (t: Throwable) {
-                Log.e(TAG, "Failed to bind camera use cases", t)
-                showStatus(getString(R.string.status_error))
-            }
-        }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun takePhotoAndUpload() {
-        if (!::imageCapture.isInitialized) {
-            showStatus(getString(R.string.status_error))
-            return
-        }
-
-        showStatus(getString(R.string.status_sending))
-
-        val file = createCaptureFile()
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
-
-        imageCapture.takePicture(
-            outputOptions,
-            ContextCompat.getMainExecutor(this),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onError(exc: ImageCaptureException) {
-                    Log.e(TAG, "Photo capture failed: ${exc.message}")
-                    showStatus(getString(R.string.status_error))
-                }
-
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    coroutineScope.launch {
-                        PhotoHistoryStore.addQueued(this@MainActivity, file.absolutePath)
-                        PhotoQueueStore.enqueue(this@MainActivity, file.absolutePath)
-                        val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
-                        val isCleanApp = packageName == "com.example.photovchistotu"
-                        if (isCleanApp) {
-                            prefs.edit()
-                                .putString(AppPrefs.KEY_LAST_STATUS, getString(R.string.status_ready_next))
-                                .apply()
-                            showStatus(getString(R.string.status_ready_next))
-                            PhotoUploadForegroundService.start(this@MainActivity)
-                        } else {
-                            prefs.getString(AppPrefs.KEY_BACKEND_URL, null)
-                                ?.let { processQueue(it) }
-                        }
-                    }
-                }
-            }
-        )
-    }
-
-    private fun createCaptureFile(): File {
-        val folder = File(
-            externalMediaDirs.firstOrNull()?.absolutePath ?: filesDir.absolutePath,
-            "photos"
-        )
-        if (!folder.exists()) {
-            folder.mkdirs()
-        }
-
-        val formatter = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.getDefault())
-        return File(folder, "IMG_${formatter.format(Date())}.jpg")
-    }
-
-    private suspend fun storeQueue(
-        prefs: android.content.SharedPreferences,
-        data: List<String>
-    ) = withContext(Dispatchers.IO) {
-        PhotoQueueStore.saveQueue(prefs, data)
-    }
-
-    private suspend fun processQueue(backendUrl: String) {
-        if (!inProcess.compareAndSet(false, true)) {
-            return
-        }
-
-        try {
-            val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
-            val queue = PhotoQueueStore.loadQueue(prefs).toMutableList()
-            if (queue.isEmpty()) {
-                showStatus(getString(R.string.status_ready))
-                return
-            }
-
-            for (entry in queue.toList()) {
-                val file = File(entry)
-                if (!file.exists()) {
-                    queue.remove(entry)
-                    continue
-                }
-
-                val url = backendUrl.trimEnd('/') + "/upload"
-                val body = MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addFormDataPart(
-                        "deviceUuid",
-                        getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
-                            .getString(AppPrefs.KEY_DEVICE_UUID, "")
-                            .orEmpty()
-                    )
-                    .addFormDataPart(
-                        "photo",
-                        file.name,
-                        file.asRequestBody("image/jpeg".toMediaTypeOrNull())
-                    )
-                    .build()
-
-                val request = Request.Builder()
-                    .url(url)
-                    .post(body)
-                    .build()
-
-                val response = try {
-                    withContext(Dispatchers.IO) { client.newCall(request).execute() }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Upload failed for ${file.absolutePath}", e)
-                    showStatus(getString(R.string.status_error))
-                    return
-                }
-
-                response.use {
-                    if (it.isSuccessful) {
-                        file.delete()
-                        queue.remove(entry)
-                        storeQueue(prefs, queue)
-                        showStatus(getString(R.string.status_uploaded))
-                        delay(300)
-                    } else {
-                        Log.e(TAG, "Upload returned ${it.code}")
-                        showStatus(getString(R.string.status_error))
-                        return
-                    }
-                }
-            }
-
-            storeQueue(prefs, queue)
-            showStatus(getString(R.string.status_ready))
-        } finally {
-            inProcess.set(false)
-        }
+            }.setNegativeButton(R.string.close) { _, _ -> finish() }.show()
     }
 }

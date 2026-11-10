@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/clean_black">
@@ -30,13 +31,13 @@
 
         <ImageButton
             android:id="@+id/btnCloseViewer"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="@drawable/clean_history_thumb_bg"
             android:contentDescription="@string/history_back"
             android:padding="10dp"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:tint="@color/clean_text_primary" />
+            app:tint="@android:color/white" />
 
     </LinearLayout>
 
@@ -50,7 +51,7 @@
         android:paddingTop="12dp"
         android:paddingEnd="20dp"
         android:paddingBottom="24dp"
-        android:textColor="@color/clean_text_primary"
+        android:textColor="@android:color/white"
         android:textSize="15sp" />
 
 </FrameLayout>

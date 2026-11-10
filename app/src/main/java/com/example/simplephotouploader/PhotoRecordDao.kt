@@ -8,6 +8,50 @@ import androidx.room.Update
 
 @Dao
 interface PhotoRecordDao {
+    @Query("SELECT COUNT(*) FROM photo_records WHERE queuedInUploadQueue = 1")
+    fun queuedCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE jobId IS NOT NULL AND status IN ('uploaded_to_server', 'sending_to_chat')")
+    fun pendingCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE status IN ('error', 'needs_review', 'delivery_unknown')")
+    fun issueCount(): Int
+
+    @Query("SELECT MIN(capturedAt) FROM photo_records WHERE queuedInUploadQueue = 1")
+    fun oldestQueuedAt(): String?
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE jobId IS NOT NULL AND photoContext IS NOT NULL AND (photoContextAck IS NULL OR photoContextAck = 'unresolved')")
+    fun pendingContextCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE photoContextAck = 'conflict'")
+    fun contextConflictCount(): Int
+
+    @Query("SELECT COUNT(*) FROM photo_records WHERE photoContextAck = 'invalid_context'")
+    fun invalidContextCount(): Int
+
+    @Query("SELECT * FROM photo_records WHERE jobId IS NOT NULL AND status IN ('uploaded_to_server', 'sending_to_chat', 'delivery_unknown') ORDER BY capturedAt ASC")
+    fun getPendingServerRecords(): List<PhotoRecordEntity>
+
+    @Query("UPDATE photo_records SET jobId = :jobId, status = 'uploaded_to_server', error = NULL, queuedInUploadQueue = 0 WHERE photoPath = :path")
+    fun acknowledgeUpload(path: String, jobId: String)
+
+    @Query("SELECT * FROM photo_records WHERE jobId IS NOT NULL AND photoContext IS NOT NULL AND (photoContextAck IS NULL OR photoContextAck = 'unresolved') ORDER BY capturedAt ASC")
+    fun getPendingPhotoContexts(): List<PhotoRecordEntity>
+
+    @Query("UPDATE photo_records SET photoContextAck = :resolution WHERE id = :id AND jobId IS NOT NULL AND photoContext = :context AND (photoContextAck IS NULL OR photoContextAck = 'unresolved')")
+    fun acknowledgePhotoContext(id: String, context: String, resolution: String): Int
+
+    @Query("UPDATE photo_records SET photoContextAck = 'conflict' WHERE id = :id AND jobId IS NOT NULL AND photoContext = :context AND (photoContextAck IS NULL OR photoContextAck = 'unresolved')")
+    fun markPhotoContextConflict(id: String, context: String): Int
+
+    @Query("UPDATE photo_records SET photoContextAck = 'invalid_context' WHERE id = :id AND jobId IS NOT NULL AND photoContext = :context AND (photoContextAck IS NULL OR photoContextAck = 'unresolved')")
+    fun markPhotoContextInvalid(id: String, context: String): Int
+
+    @Query("UPDATE photo_records SET photoContextAck = NULL WHERE photoPath = :path AND jobId IS NOT NULL AND photoContextAck = 'invalid_context'")
+    fun retryInvalidPhotoContext(path: String): Int
+
+    @Query("UPDATE photo_records SET status = 'queued', error = NULL, queuedInUploadQueue = 1, manualRetryApproved = 1 WHERE photoPath = :path AND jobId IS NULL AND chatDeleted = 0 AND status IN ('error', 'needs_review', 'retrying')")
+    fun retryLocal(path: String): Int
     @Query("SELECT * FROM photo_records ORDER BY capturedAt DESC")
     fun getAllHistory(): List<PhotoRecordEntity>
 
@@ -25,6 +69,9 @@ interface PhotoRecordDao {
 
     @Query("SELECT * FROM photo_records WHERE jobId = :jobId LIMIT 1")
     fun getByJobId(jobId: String): PhotoRecordEntity?
+
+    @Query("SELECT * FROM photo_records WHERE jobId = :jobId")
+    fun getAllByJobId(jobId: String): List<PhotoRecordEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insert(record: PhotoRecordEntity)

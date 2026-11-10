@@ -1,0 +1,9 @@
+<resources>
+    <item name="versionText" type="id" />
+    <item name="headerSubtitle" type="id" />
+    <item name="btnRetry" type="id" />
+    <item name="tvHistorySubheader" type="id" />
+    <item name="cookPanel" type="id" />
+    <item name="cookNext" type="id" />
+    <item name="cookChoices" type="id" />
+</resources>

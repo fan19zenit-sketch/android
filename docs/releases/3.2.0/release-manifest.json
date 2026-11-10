@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "tag": "android-v3.2.0-unsigned-20261026",
+  "source_commit": "c1e2f42b0365bb511b2fc297d5cded0a2fb29b3d",
+  "package": "com.example.photovchistotu",
+  "version_name": "3.2.0",
+  "version_code": 20261026,
+  "min_sdk": 24,
+  "target_sdk": 34,
+  "unsigned_asset": "app-clean-release-unsigned.apk",
+  "unsigned_size": 7061289,
+  "unsigned_sha256": "edac8d31c59a955f253bd89028598b31a3705dd15d0fa2e776dd4e5281ca99be",
+  "expected_signer_sha256": "7d0884e53e704a683a162ca2f34c7db1e1006c07c20147d61f1892d4b3dcfca4",
+  "expected_signed_asset": "photo-v-chistotu-3.2.0-update.apk",
+  "signed": false,
+  "production_published": false,
+  "physical_device_acceptance": false
+}

@@ -37,6 +37,9 @@
         android:text="@string/history_empty"
         android:visibility="gone" />
 
+    <Button android:id="@+id/btnSupport" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="@string/support_title" />
+
     <Button
         android:id="@+id/btnChangeCity"
         android:layout_width="match_parent"
