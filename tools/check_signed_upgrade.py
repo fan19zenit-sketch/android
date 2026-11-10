@@ -124,8 +124,8 @@ def main(old_apk, candidate):
     if adb('shell', 'id', '-u') != '0':
         raise RuntimeError('rooted disposable emulator required for network isolation')
     for tool in ('iptables', 'ip6tables'):
-        adb('shell', tool, '-I', 'OUTPUT', '1', '-j', 'REJECT')
-        adb('shell', tool, '-I', 'OUTPUT', '1', '-o', 'lo', '-j', 'ACCEPT')
+        adb('shell', tool, '-w', '30', '-I', 'OUTPUT', '1', '-j', 'REJECT')
+        adb('shell', tool, '-w', '30', '-I', 'OUTPUT', '1', '-o', 'lo', '-j', 'ACCEPT')
     adb('reverse', 'tcp:18433', 'tcp:18433')
     adb('install', '-r', old_apk)
     uid = adb('shell', 'stat', '-c', '%u', APP_ROOT)
