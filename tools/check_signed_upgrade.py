@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
 from email.policy import default
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+from xml.sax.saxutils import escape
 
 
 PACKAGE = 'com.example.photovchistotu'
@@ -185,11 +187,34 @@ def main(old_apk, candidate):
             adb('pull', APP_ROOT + '/files/' + item + '.jpg', str(copy))
             if hashlib.sha256(copy.read_bytes()).digest() != hashlib.sha256(expected_bytes).digest():
                 raise RuntimeError('fixture photo changed during installation')
+        now = datetime.now(timezone.utc)
+        scope = '\0'.join(('http://127.0.0.1:18433', DEVICE, CITY))
+        digest = hashlib.sha256(scope.encode()).hexdigest()
+        shift = {'schema': 1, 'branch': 'fixture-branch', 'bindingRevision': 1, 'bindingTimezone': 'UTC',
+                 'shiftId': 'fixture-shift', 'shiftRevision': 1, 'day': now.date().isoformat(), 'timezone': 'UTC',
+                 'confirmedAt': (now - timedelta(minutes=1)).isoformat(), 'cooks': ['fixture-cook'],
+                 'operators': ['fixture-operator'], 'mainCook': 'fixture-cook',
+                 'employees': [{'id': 'fixture-cook', 'name': 'FixtureCook', 'roles': ['cook']},
+                               {'id': 'fixture-operator', 'name': 'FixtureOperator', 'roles': ['operator']}]}
+        shift_prefs = root / 'shift.xml'
+        shift_prefs.write_text("<?xml version='1.0' encoding='utf-8' standalone='yes' ?><map>"
+                               '<boolean name="workflow_enabled" value="true" />'
+                               '<string name="confirmed_shift_v1">' + escape(json.dumps(shift)) + '</string></map>',
+                               encoding='utf8')
+        push_owned(shift_prefs, APP_ROOT + '/shared_prefs/cook_shift_' + digest + '.xml', uid)
         server = ThreadingHTTPServer(('127.0.0.1', 18433), Fixture)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
             adb('shell', 'am', 'start', '-n', PACKAGE + '/com.example.simplephotouploader.MainActivity')
+            active_shift_seen = False
+            for _ in range(8):
+                time.sleep(2)
+                if 'FixtureCook' in adb('shell', 'uiautomator', 'dump', '/dev/tty', check=False):
+                    active_shift_seen = True
+                    break
+            if not active_shift_seen:
+                raise RuntimeError('fixture current cook was not visible as an active shift')
             deadline = time.monotonic() + 180
             while time.monotonic() < deadline:
                 with Fixture.lock:
@@ -212,7 +237,7 @@ def main(old_apk, candidate):
                 if len(saved) != 4 or any(context is not None for _, context in saved):
                     raise RuntimeError('old photos acquired cook metadata or history was lost')
             print('SIGNED_UPGRADE_OK: branch, UUID, settings, four files and history preserved')
-            print('ISOLATED_DELIVERY_OK: three queued photos delivered once each without cook metadata')
+            print('ISOLATED_DELIVERY_OK: active current cook; three old queued photos delivered once without cook metadata')
         finally:
             server.shutdown()
             server.server_close()
