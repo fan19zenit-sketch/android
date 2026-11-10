@@ -1,0 +1,40 @@
+name: Signed APK upgrade check
+on:
+  push:
+    branches:
+      - codex/photobot-cook-workflow-v2-implementation
+    paths:
+      - .github/workflows/signed-upgrade-check.yml
+      - tools/check_signed_upgrade.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download the previously signed 3.2.0 candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p upgrade-input
+          gh release download android-v3.2.0-unsigned-20261026 --repo "$GITHUB_REPOSITORY" --pattern photo-v-chistotu-3.2.0-update.apk --dir upgrade-input
+          echo 'beb6026893a9c2d42a2944f4d11dcd98162151a1b6d214c834d8bc18692053e3  upgrade-input/photo-v-chistotu-3.2.0-update.apk' | sha256sum -c -
+      - name: Download the exact published 3.3.3 candidate
+        run: |
+          curl --fail --location --silent --show-error 'https://app.sushigohub.ru/photo-downloads/photo-v-chistotu-3.3.3-9221d37.apk' -o upgrade-input/candidate.apk
+          echo '7578a1fb4897769d732a2fd3033df6224df3dd7a28de0f17c64b444b4b6c537d  upgrade-input/candidate.apk' | sha256sum -c -
+      - name: Enable emulator acceleration on the disposable runner
+        run: sudo chmod a+rw /dev/kvm
+      - uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
+          script: python3 tools/check_signed_upgrade.py upgrade-input/photo-v-chistotu-3.2.0-update.apk upgrade-input/candidate.apk
