@@ -19,6 +19,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
 import org.hamcrest.Matchers.allOf
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -26,6 +27,11 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class CookShiftScreenshotTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
+
+    @After fun resetMode() {
+        context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
+            .putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
+    }
 
     private fun waitFor(text: String) {
         val deadline = SystemClock.elapsedRealtime() + 15_000
@@ -61,25 +67,22 @@ class CookShiftScreenshotTest {
         ActivityScenario.launch<CookShiftActivity>(intent).use {
             waitFor("Начать смену"); save("01-start")
             onView(withText("Начать смену")).perform(click())
-            waitFor("Сколько сотрудников на смене?"); save("02-staff-count")
-            choose("3"); next()
-            waitFor("Сколько операторов в смене?"); choose("1"); next()
-            waitFor("Сколько поваров в смене?"); choose("2"); next()
-            waitFor("Сколько помощников в смене?"); choose("0"); next()
-            waitFor("Выберите оператора 1"); save("03-operator")
-            choose("Сидорова Мария"); next()
-            waitFor("Выберите повара 1"); choose("Иванов Иван"); next()
-            waitFor("Выберите повара 2"); save("04-second-cook")
-            choose("Петрова Анна"); next()
-            waitFor("Кто основной повар?"); save("05-main-cook")
-            choose("Иванов Иван"); next()
-            waitFor("Проверьте состав смены"); save("06-confirm")
+            waitFor("Сколько сотрудников?"); choose("3"); save("02-staff-count")
+            next()
+            waitFor("Сколько операторов?"); save("02b-operator-count"); choose("1"); next()
+            waitFor("Сколько поваров?"); choose("2"); save("02c-cook-count"); next()
+            waitFor("Сколько помощников?"); save("02d-assistant-count"); choose("0"); next()
+            waitFor("Выберите оператора 1"); choose("Сидорова Мария"); save("03-operator"); next()
+            waitFor("Выберите повара 1"); choose("Иванов Иван"); save("03b-first-cook"); next()
+            waitFor("Выберите повара 2"); choose("Петрова Анна"); save("04-second-cook"); next()
+            waitFor("Кто основной повар?"); choose("Иванов Иван"); save("05-main-cook"); next()
+            waitFor("Проверьте состав"); save("06-confirm")
         }
         prefs.edit().putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_PIZZA).commit()
         ActivityScenario.launch<CookShiftActivity>(intent).use {
-            waitFor("Сколько поваров сегодня?"); save("07-pizza-count")
-            choose("2"); next()
-            waitFor("Выберите повара 1"); save("08-pizza-person")
+            waitFor("Сколько поваров сегодня?"); choose("2"); save("07-pizza-count")
+            next()
+            waitFor("Выберите повара 1"); choose("Иванов Иван"); save("08-pizza-person")
         }
     }
 }

@@ -3,9 +3,11 @@ package com.example.simplephotouploader
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
+import android.view.Gravity
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -24,6 +26,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
@@ -55,6 +59,11 @@ class CookShiftActivity : AppCompatActivity() {
     private var wizardChoice: String? = null
     private var wizard: CookShiftWizard? = null
     private var branchTemplate: CookBranchShiftTemplate? = null
+    private var branchTemplateEnabled = false
+    private var templateRefresh: Job? = null
+    private var appliedTemplateRevision: Int? = null
+    private var templateChangedDuringEdit = false
+    private var refreshedTemplateEmployees: List<CookEmployee>? = null
     private var pizzaStep = 0
     private var pizzaCount = 1
     private val pizzaCooks = mutableListOf<String>()
@@ -63,7 +72,8 @@ class CookShiftActivity : AppCompatActivity() {
     private val pizzaMode get() = BuildConfig.FLAVOR == "clean" &&
         getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN) == AppPrefs.DEVICE_MODE_PIZZA
     private data class LoadedRoster(val binding: CookBinding, val employees: List<CookEmployee>, val offline: Boolean,
-                                    val template: CookBranchShiftTemplate? = null, val employeeVisibility: Boolean = false)
+                                    val template: CookBranchShiftTemplate? = null, val employeeVisibility: Boolean = false,
+                                    val templateEnabled: Boolean = false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +94,76 @@ class CookShiftActivity : AppCompatActivity() {
 
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
 
+    override fun onStart() {
+        super.onStart()
+        if (!preview && !pizzaMode && BuildConfig.FLAVOR == "clean") {
+            templateRefresh = scope.launch {
+                while (true) {
+                    delay(15_000)
+                    refreshBranchTemplate()
+                }
+            }
+        }
+    }
+
+    override fun onStop() {
+        templateRefresh?.cancel()
+        templateRefresh = null
+        super.onStop()
+    }
+
+    private suspend fun refreshBranchTemplate() {
+        val expectedBinding = binding ?: return
+        if (!branchTemplateEnabled || busy) return
+        val identity = CookLocalSession.identity(applicationContext)
+        val updated = try {
+            withContext(Dispatchers.IO) {
+                val (client, device) = client()
+                if (client.capabilities(device)?.branchShiftTemplate != true || client.initializeBinding(device) != expectedBinding)
+                    return@withContext null
+                val roster = client.roster(device) ?: return@withContext null
+                if (roster.branchRef != expectedBinding.branchRef) return@withContext null
+                val day = Instant.now().atZone(ZoneId.of(requireNotNull(expectedBinding.timezone))).toLocalDate().toString()
+                val template = client.branchShift(device, day, expectedBinding)
+                if (template != null && (template.cooks + template.operators + template.assistants)
+                        .any { id -> roster.employees.none { it.id == id } }) return@withContext null
+                roster to template
+            }
+        } catch (error: CancellationException) { throw error } catch (_: Exception) { null } ?: return
+        if (binding != expectedBinding || CookLocalSession.identity(applicationContext) != identity || busy) return
+        val old = branchTemplate
+        val next = updated.second
+        if (old == next) return
+        branchTemplate = next
+        if (wizardStep == 0) {
+            employees = updated.first.employees
+            render()
+        } else {
+            // Never discard a person's in-progress selection without an explicit action.
+            refreshedTemplateEmployees = updated.first.employees
+            templateChangedDuringEdit = true
+            showTemplateChange()
+        }
+    }
+
+    private fun showTemplateChange() {
+        if (!templateChangedDuringEdit || content.findViewWithTag<View>("template-change") != null) return
+        val notice = LinearLayout(this).apply {
+            tag = "template-change"
+            orientation = LinearLayout.VERTICAL
+            addView(label("Состав в боте изменился", 16f, Color.rgb(255, 180, 210)))
+            if (branchTemplate != null) addView(action("Показать новый состав") {
+                refreshedTemplateEmployees?.let { employees = it }
+                if (applyBranchTemplate()) {
+                    templateChangedDuringEdit = false
+                    refreshedTemplateEmployees = null
+                }
+                render()
+            })
+        }
+        content.addView(notice, minOf(1, content.childCount))
+    }
+
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + .5f).toInt()
 
     private fun label(text: String, size: Float, color: Int = Color.WHITE): TextView = TextView(this).apply {
@@ -99,6 +179,21 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun choiceTint() = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
         intArrayOf(Color.rgb(224, 83, 153), Color.rgb(150, 150, 150)))
+
+    private fun RadioButton.styleChoice() {
+        if (BuildConfig.FLAVOR != "clean") return
+        fun card(color: Int, stroke: Int) = GradientDrawable().apply {
+            cornerRadius = dp(16).toFloat(); setColor(color); setStroke(dp(1), stroke)
+        }
+        background = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_checked), card(Color.rgb(49, 29, 39), Color.rgb(224, 83, 153)))
+            addState(intArrayOf(), card(Color.rgb(28, 28, 30), Color.rgb(48, 48, 51)))
+        }
+        setPadding(dp(14), dp(4), dp(14), dp(4))
+        minHeight = dp(58)
+        layoutParams = RadioGroup.LayoutParams(RadioGroup.LayoutParams.MATCH_PARENT, RadioGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(8) }
+    }
 
     private fun action(text: String, primary: Boolean = false, click: () -> Unit): Button = Button(this).apply {
         this.text = text
@@ -173,7 +268,7 @@ class CookShiftActivity : AppCompatActivity() {
                                     (value.cooks + value.operators + value.assistants).all { it in known }
                                 }
                             } catch (_: IOException) { null } else null
-                            LoadedRoster(current, roster.employees, false, template, capabilities.employeeVisibility)
+                            LoadedRoster(current, roster.employees, false, template, capabilities.employeeVisibility, capabilities.branchShiftTemplate)
                         } catch (error: IOException) {
                             if (error is CookApiProtocolException || (error is CookApiHttpException &&
                                     error.status !in setOf(408, 429) && error.status < 500)) throw error
@@ -223,11 +318,12 @@ class CookShiftActivity : AppCompatActivity() {
                         .distinctBy { it.id })
                 }
             }
-            result.onSuccess { (newBinding, roster, wasOffline, template, visibilityEnabled) ->
+            result.onSuccess { (newBinding, roster, wasOffline, template, visibilityEnabled, templateEnabled) ->
                 binding = newBinding
                 employees = roster
                 offlineMode = wasOffline
                 branchTemplate = template
+                branchTemplateEnabled = templateEnabled
                 employeeVisibilityEnabled = visibilityEnabled
                 val previous = withContext(Dispatchers.IO) {
                     val scope = CookLocalSession.offlineScope(applicationContext, newBinding)
@@ -372,6 +468,7 @@ class CookShiftActivity : AppCompatActivity() {
                         setTextColor(Color.WHITE); textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isEnabled = !CookEmployeeLabels.ambiguous(employee, employees)
                         isChecked = pizzaChoice == employee.id; setOnClickListener { pizzaChoice = employee.id }
+                        styleChoice()
                     })
                 }
             })
@@ -410,9 +507,10 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun renderWizard() {
         content.removeAllViews()
+        content.gravity = if (wizardStep == 0) Gravity.CENTER_VERTICAL else Gravity.TOP
         (content.parent as? ScrollView)?.post { (content.parent as? ScrollView)?.scrollTo(0, 0) }
-        content.addView(label("Смена", 30f))
         if (offlineMode) content.addView(label("Нет сети", 16f, Color.rgb(255, 180, 210)))
+        showTemplateChange()
         fun back(step: Int) { content.addView(action("Назад") { wizardChoice = null; wizardStep = step; render() }) }
         fun counts(title: String, values: IntRange, selected: Int, onNext: (Int) -> Unit) {
             content.addView(label(title, 20f))
@@ -424,6 +522,7 @@ class CookShiftActivity : AppCompatActivity() {
                         textSize = 20f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = number == choice
                         setOnClickListener { choice = number }
+                        styleChoice()
                     })
                 }
             })
@@ -439,26 +538,26 @@ class CookShiftActivity : AppCompatActivity() {
                 return
             }
             1 -> {
-                counts("Сколько сотрудников на смене?", 1..6, staffCount) {
+                counts("Сколько сотрудников?", 1..6, staffCount) {
                     staffCount = it; wizardChoice = null; wizard = if (it == 1) CookShiftWizard(1) else null
                     wizardStep = if (it == 1) 5 else 2; render()
                 }
                 back(0); return
             }
             2 -> {
-                counts("Сколько операторов в смене?", 1..minOf(2, staffCount), operatorCount) {
+                counts("Сколько операторов?", 1..minOf(2, staffCount), operatorCount) {
                     operatorCount = it; wizardStep = 3; render()
                 }
                 back(1); return
             }
             3 -> {
-                counts("Сколько поваров в смене?", 1..minOf(4, staffCount), cookCount) {
+                counts("Сколько поваров?", 1..minOf(4, staffCount), cookCount) {
                     cookCount = it; wizardStep = 4; render()
                 }
                 back(2); return
             }
             4 -> {
-                counts("Сколько помощников в смене?", 0..minOf(2, staffCount), assistantCount) {
+                counts("Сколько помощников?", 0..minOf(2, staffCount), assistantCount) {
                     assistantCount = it
                     val next = CookShiftWizard(staffCount)
                     if (runCatching { next.setCounts(operatorCount, cookCount, assistantCount) }.isFailure) {
@@ -493,6 +592,7 @@ class CookShiftActivity : AppCompatActivity() {
                         isEnabled = !CookEmployeeLabels.ambiguous(employee, employees)
                         isChecked = employee.id == wizardChoice
                         setOnClickListener { wizardChoice = employee.id }
+                        styleChoice()
                     })
                 }
             })
@@ -526,6 +626,7 @@ class CookShiftActivity : AppCompatActivity() {
                         setTextColor(Color.WHITE); textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = employeeId == wizardChoice
                         setOnClickListener { wizardChoice = employeeId }
+                        styleChoice()
                     })
                 }
             })
@@ -540,7 +641,7 @@ class CookShiftActivity : AppCompatActivity() {
             })
             return
         }
-        content.addView(label("Проверьте состав смены", 20f))
+        content.addView(label("Проверьте состав", 20f))
         for ((role, title) in listOf(CookShiftWizard.Role.OPERATOR to "Оператор", CookShiftWizard.Role.COOK to "Повар",
                 CookShiftWizard.Role.ASSISTANT to "Помощник")) {
             draft.selected(role).forEach { id ->
@@ -550,6 +651,10 @@ class CookShiftActivity : AppCompatActivity() {
             }
         }
         content.addView(action("Начать смену", primary = true) {
+            if (appliedTemplateRevision != null && templateChangedDuringEdit) {
+                showError("Состав в боте изменился. Откройте новый состав перед подтверждением.")
+                return@action
+            }
             if (!draft.isComplete()) { showError("Проверьте количество сотрудников и выбранный состав"); return@action }
             cooks.clear(); cooks.addAll(draft.selected(CookShiftWizard.Role.COOK))
             operators.clear(); operators.addAll(draft.selected(CookShiftWizard.Role.OPERATOR))
@@ -587,6 +692,7 @@ class CookShiftActivity : AppCompatActivity() {
                 template.assistants.forEach { draft.select(CookShiftWizard.Role.ASSISTANT, it) }
             }
             wizard = draft
+            appliedTemplateRevision = template.revision
             wizardChoice = null
             wizardStep = 5 + if (staffCount == 1) 1 else operatorCount + cookCount + assistantCount
             true

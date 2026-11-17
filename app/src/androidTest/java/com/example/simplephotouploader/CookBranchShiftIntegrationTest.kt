@@ -14,6 +14,7 @@ import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.isChecked
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import java.time.Instant
 import java.time.ZoneId
@@ -30,7 +31,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class CookBranchShiftIntegrationTest {
     private fun waitFor(text: String) {
-        val deadline = SystemClock.elapsedRealtime() + 15_000
+        val deadline = SystemClock.elapsedRealtime() + 30_000
         while (true) {
             try { onView(withText(text)).check(matches(isDisplayed())); return }
             catch (error: androidx.test.espresso.NoMatchingViewException) {
@@ -104,8 +105,14 @@ class CookBranchShiftIntegrationTest {
                 onView(withText("Начать смену")).perform(click())
                 waitFor("Кто основной повар?")
                 onView(allOf(withText(b.displayName), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
+                post("/fixture/branch-shift-from-bot?cook_a=${b.id}&cook_b=${a.id}&operator=${operator.id}")
+                waitFor("Состав в боте изменился")
+                onView(allOf(withText(b.displayName), isAssignableFrom(RadioButton::class.java))).check(matches(isChecked()))
+                onView(withText("Показать новый состав")).perform(scrollTo(), click())
+                waitFor("Кто основной повар?")
+                onView(allOf(withText(b.displayName), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
                 onView(withText("Далее")).perform(scrollTo(), click())
-                waitFor("Проверьте состав смены")
+                waitFor("Проверьте состав")
                 onView(withText("Начать смену")).perform(scrollTo(), click())
                 val deadline = SystemClock.elapsedRealtime() + 15_000
                 var saved = CookLocalSession.cache(context).load()

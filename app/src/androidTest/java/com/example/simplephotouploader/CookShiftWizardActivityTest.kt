@@ -28,6 +28,8 @@ class CookShiftWizardActivityTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
     @Before fun reset() {
+        context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
+            .putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
         CookLocalSession.cache(context).clear()
         CookPendingShiftStore(CookLocalSession.preferences(context)).clear()
         CookLocalSession.preferences(context).edit().remove(CookOfflineSelectionCache.KEY).commit()
@@ -54,11 +56,11 @@ class CookShiftWizardActivityTest {
         ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
             waitFor("Начать смену")
             onView(withText("Начать смену")).perform(click())
-            waitFor("Сколько сотрудников на смене?")
+            waitFor("Сколько сотрудников?")
             choose("1"); next()
             waitFor("Выберите сотрудника")
             choose("Повар 1"); next()
-            waitFor("Проверьте состав смены")
+            waitFor("Проверьте состав")
             onView(withText("Начать смену")).perform(scrollTo(), click())
             val deadline = SystemClock.elapsedRealtime() + 15_000
             var saved = CookLocalSession.cache(context).load()
@@ -76,13 +78,13 @@ class CookShiftWizardActivityTest {
     @Test fun twoPeopleCanSelectSeparateOperatorAndCookWithoutAssistant() {
         ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
             waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
-            waitFor("Сколько сотрудников на смене?"); choose("2"); next()
-            waitFor("Сколько операторов в смене?"); choose("1"); next()
-            waitFor("Сколько поваров в смене?"); choose("1"); next()
-            waitFor("Сколько помощников в смене?"); choose("0"); next()
+            waitFor("Сколько сотрудников?"); choose("2"); next()
+            waitFor("Сколько операторов?"); choose("1"); next()
+            waitFor("Сколько поваров?"); choose("1"); next()
+            waitFor("Сколько помощников?"); choose("0"); next()
             waitFor("Выберите оператора 1"); choose("Оператор 1"); next()
             waitFor("Выберите повара 1"); choose("Повар 1"); next()
-            waitFor("Проверьте состав смены")
+            waitFor("Проверьте состав")
             onView(withText("Начать смену")).perform(scrollTo(), click())
             val deadline = SystemClock.elapsedRealtime() + 15_000
             var saved = CookLocalSession.cache(context).load()
@@ -99,14 +101,14 @@ class CookShiftWizardActivityTest {
     @Test fun helperIsStoredSeparatelyFromCook() {
         ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
             waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
-            waitFor("Сколько сотрудников на смене?"); choose("3"); next()
-            waitFor("Сколько операторов в смене?"); choose("1"); next()
-            waitFor("Сколько поваров в смене?"); choose("1"); next()
-            waitFor("Сколько помощников в смене?"); choose("1"); next()
+            waitFor("Сколько сотрудников?"); choose("3"); next()
+            waitFor("Сколько операторов?"); choose("1"); next()
+            waitFor("Сколько поваров?"); choose("1"); next()
+            waitFor("Сколько помощников?"); choose("1"); next()
             waitFor("Выберите оператора 1"); choose("Оператор 1"); next()
             waitFor("Выберите повара 1"); choose("Повар 1"); next()
             waitFor("Выберите помощника 1"); choose("Повар 2"); next()
-            waitFor("Проверьте состав смены")
+            waitFor("Проверьте состав")
             onView(withText("Начать смену")).perform(scrollTo(), click())
             val deadline = SystemClock.elapsedRealtime() + 15_000
             var saved = CookLocalSession.cache(context).load()
@@ -127,7 +129,7 @@ class CookShiftWizardActivityTest {
             ActivityScenario.launch<CookShiftActivity>(intent).use {
                 waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
                 waitFor("Кто основной повар?"); choose(name); next()
-                waitFor("Проверьте состав смены")
+                waitFor("Проверьте состав")
                 onView(withText("Начать смену")).perform(scrollTo(), click())
                 val deadline = SystemClock.elapsedRealtime() + 15_000
                 var saved = CookLocalSession.cache(context).load()
