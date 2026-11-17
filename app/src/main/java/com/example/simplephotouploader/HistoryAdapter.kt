@@ -72,6 +72,19 @@ class HistoryAdapter(
                 subtitle.text = "${subtitle.text}\n${itemView.context.getString(R.string.history_cook_context_invalid)}"
             }
 
+            if (BuildConfig.FLAVOR == "clean") {
+                title.text = item.captureAuthor ?: "Автор не указан"
+                subtitle.text = listOfNotNull(PhotoHistoryStore.formatTimestamp(item.capturedAt),
+                    item.error?.takeIf { item.status in setOf("retrying", "error", "needs_review", "delivery_unknown") },
+                    when (item.photoContextAck) {
+                        "conflict" -> itemView.context.getString(R.string.history_cook_context_conflict)
+                        "invalid_context" -> itemView.context.getString(R.string.history_cook_context_invalid)
+                        else -> null
+                    }).joinToString("\n")
+                val delivered = item.status == "sent" && !item.chatDeleted
+                status.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    if (delivered) android.graphics.Color.rgb(0,202,171) else android.graphics.Color.rgb(241,232,224))
+            }
             status.text = if (BuildConfig.FLAVOR == "clean") {
                 itemView.context.getString(HistoryDisplay.status(item.status, item.chatDeleted))
             } else when (item.status) {

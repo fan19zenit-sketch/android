@@ -1,0 +1,8 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/sushi_ink" android:orientation="horizontal">
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1.15" android:layout_height="match_parent" android:orientation="vertical">
+        <TextView android:id="@+id/headerSubtitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingHorizontal="16dp" android:textColor="@android:color/white" android:textSize="22sp" android:textStyle="bold" />
+        <TextView android:id="@+id/versionText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone" />
+        <androidx.camera.view.PreviewView android:id="@+id/previewView" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+    </LinearLayout>
+    <ScrollView android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:fillViewport="true"><include layout="@layout/camera_console" /></ScrollView>
+</LinearLayout>

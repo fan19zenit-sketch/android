@@ -27,6 +27,7 @@ object PhotoHistoryStore {
         val error: String?,
         val queuedInUploadQueue: Boolean,
         val photoContextAck: String? = null,
+        val captureAuthor: String? = null,
     )
 
     fun addQueued(
@@ -257,6 +258,14 @@ object PhotoHistoryStore {
             error = entity.error,
             queuedInUploadQueue = entity.queuedInUploadQueue,
             photoContextAck = entity.photoContextAck,
+            captureAuthor = entity.photoContext?.let { raw -> runCatching {
+                val data = org.json.JSONObject(raw)
+                when (data.optString("selectionSource")) {
+                    "shared" -> "Совместная работа"
+                    "explicit_unknown" -> "Автор неизвестен"
+                    else -> (data.opt("cookNameSnapshot") as? String)?.takeIf { it.isNotBlank() }
+                }
+            }.getOrNull() },
         )
     }
 }

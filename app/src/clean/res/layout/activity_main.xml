@@ -1,7 +1,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#111111"
+    android:background="@color/sushi_ink"
     android:orientation="vertical">
 
     <TextView
@@ -14,7 +14,8 @@
         android:paddingEnd="20dp"
         android:paddingBottom="12dp"
         android:textColor="#FFFFFF"
-        android:textSize="18sp" />
+        android:textSize="26sp"
+        android:textStyle="bold" />
 
     <TextView
         android:id="@+id/versionText"
@@ -28,105 +29,5 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#111111"
-        android:orientation="vertical"
-        android:paddingStart="18dp"
-        android:paddingTop="8dp"
-        android:paddingEnd="18dp"
-        android:paddingBottom="16dp">
-
-        <LinearLayout
-            android:id="@+id/cookPanel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-                <TextView
-                    android:id="@+id/cookNext"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:textColor="#FFFFFF"
-                    android:textSize="15sp"
-                    android:paddingBottom="6dp" />
-                <TextView
-                    android:id="@+id/cookChange"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:gravity="center"
-                    android:paddingHorizontal="8dp"
-                    android:text="Сменить повара"
-                    android:textColor="#F26AA5"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
-            </LinearLayout>
-            <HorizontalScrollView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:scrollbars="none">
-                <LinearLayout
-                    android:id="@+id/cookChoices"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal" />
-            </HorizontalScrollView>
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:accessibilityLiveRegion="polite"
-            android:gravity="center"
-            android:minHeight="32dp"
-            android:text="@string/camera_ready"
-            android:textColor="#F5D4E3"
-            android:textSize="14sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <FrameLayout
-                android:layout_width="0dp"
-                android:layout_height="72dp"
-                android:layout_weight="1">
-
-                <ImageButton
-                    android:id="@+id/settingsButton"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_gravity="center"
-                    android:background="@drawable/clean_history_thumb_bg"
-                    android:clipToOutline="true"
-                    android:contentDescription="@string/camera_history_label"
-                    android:padding="3dp"
-                    android:scaleType="centerCrop"
-                    android:src="@android:drawable/ic_menu_gallery" />
-            </FrameLayout>
-
-            <androidx.appcompat.widget.AppCompatImageButton
-                android:id="@+id/captureButton"
-                android:layout_width="72dp"
-                android:layout_height="72dp"
-                android:background="@drawable/clean_shutter_button"
-                android:contentDescription="@string/camera_shutter_label" />
-
-            <Space
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-        </LinearLayout>
-    </LinearLayout>
+    <include layout="@layout/camera_console" />
 </LinearLayout>

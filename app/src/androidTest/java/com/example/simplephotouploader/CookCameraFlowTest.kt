@@ -97,7 +97,7 @@ class CookCameraFlowTest {
         val existing = dao.getAllHistory().map { it.id }.toSet()
         ActivityScenario.launch(MainActivity::class.java).use {
             await { visible("Смена") }
-            onView(withText("Смена")).perform(scrollTo(), click())
+            onView(withText("Смена")).perform(click())
             chooseShift(twoCooks = true)
             await { visible("Повар 2") && cameraReady() }
             onView(withText("Автор неизвестен")).check(doesNotExist())
@@ -119,7 +119,7 @@ class CookCameraFlowTest {
         val existing = dao.getAllHistory().map { it.id }.toSet()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             await { visible("Смена") }
-            onView(withText("Смена")).perform(scrollTo(), click())
+            onView(withText("Смена")).perform(click())
             chooseShift(twoCooks = true)
             await { visible("Сменить повара") && cameraReady() }
             onView(withText("Сменить повара")).perform(click())
@@ -175,7 +175,7 @@ class CookCameraFlowTest {
         val existing = dao.getAllHistory().map { it.id }.toSet()
         ActivityScenario.launch(MainActivity::class.java).use {
             await { visible("Смена") }
-            onView(withText("Смена")).perform(scrollTo(), click())
+            onView(withText("Смена")).perform(click())
             chooseShift(twoCooks = false)
             await { visible("Повар 1") && cameraReady() }
             context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()

@@ -75,19 +75,31 @@ class CookShiftActivity : AppCompatActivity() {
                                     val template: CookBranchShiftTemplate? = null, val employeeVisibility: Boolean = false,
                                     val templateEnabled: Boolean = false)
 
+    private val branded get() = BuildConfig.FLAVOR == "clean"
+    private val ink get() = if (branded) getColor(R.color.sushi_ink) else Color.WHITE
+    private val paper get() = if (branded) getColor(R.color.sushi_paper) else Color.rgb(17, 17, 17)
+    private lateinit var footer: LinearLayout
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(17, 17, 17)
+        window.statusBarColor = paper
+        if (branded) window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         window.navigationBarColor = Color.rgb(17, 17, 17)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(20), dp(24), dp(28))
-            setBackgroundColor(Color.rgb(17, 17, 17))
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            setBackgroundColor(paper)
         }
-        setContentView(ScrollView(this).apply {
+        val scroll = ScrollView(this).apply {
             isFillViewport = true
-            setBackgroundColor(Color.rgb(17, 17, 17))
+            setBackgroundColor(paper)
             addView(content)
+        }
+        footer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        setContentView(if (!branded) scroll else LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setBackgroundColor(paper)
+            addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(ScrollView(this@CookShiftActivity).apply { addView(footer) })
         })
         loadRoster()
     }
@@ -166,19 +178,19 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + .5f).toInt()
 
-    private fun label(text: String, size: Float, color: Int = Color.WHITE): TextView = TextView(this).apply {
+    private fun label(text: String, size: Float, color: Int = ink): TextView = TextView(this).apply {
         this.text = text
-        textSize = size
+        textSize = if (branded && size >= 20f) 28f else size
         if (size >= 20f) {
-            if (BuildConfig.FLAVOR == "clean") typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            if (BuildConfig.FLAVOR == "clean") typeface = Typeface.create("sans-serif", Typeface.BOLD)
             else setTypeface(typeface, Typeface.BOLD)
         }
-        setTextColor(color)
+        setTextColor(if (branded && color != ink) getColor(R.color.sushi_muted) else color)
         setPadding(0, dp(12), 0, dp(8))
     }
 
     private fun choiceTint() = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-        intArrayOf(Color.rgb(224, 83, 153), Color.rgb(150, 150, 150)))
+        if (branded) intArrayOf(ink, getColor(R.color.sushi_muted)) else intArrayOf(Color.rgb(224, 83, 153), Color.GRAY))
 
     private fun RadioButton.styleChoice() {
         if (BuildConfig.FLAVOR != "clean") return
@@ -186,8 +198,8 @@ class CookShiftActivity : AppCompatActivity() {
             cornerRadius = dp(16).toFloat(); setColor(color); setStroke(dp(1), stroke)
         }
         background = StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_checked), card(Color.rgb(49, 29, 39), Color.rgb(224, 83, 153)))
-            addState(intArrayOf(), card(Color.rgb(28, 28, 30), Color.rgb(48, 48, 51)))
+            addState(intArrayOf(android.R.attr.state_checked), card(getColor(R.color.sushi_pink), ink))
+            addState(intArrayOf(), card(paper, getColor(R.color.sushi_line)))
         }
         setPadding(dp(14), dp(4), dp(14), dp(4))
         minHeight = dp(58)
@@ -200,12 +212,14 @@ class CookShiftActivity : AppCompatActivity() {
         isAllCaps = false
         textSize = 16f
         minHeight = dp(52)
-        setTextColor(Color.WHITE)
+        setTextColor(ink)
         if (BuildConfig.FLAVOR == "clean") {
-            background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(Color.WHITE) }
+            tag = if (primary) "primary-action" else null
+            setTextColor(if (primary && (wizardStep != 0 || pizzaMode)) Color.WHITE else ink)
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(Color.WHITE) }
             backgroundTintList = ColorStateList(
                 arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-                intArrayOf(Color.rgb(75, 75, 75), if (primary) Color.rgb(189, 58, 117) else Color.rgb(48, 48, 48)))
+                intArrayOf(getColor(R.color.sushi_line), if (primary && wizardStep == 0 && !pizzaMode) getColor(R.color.sushi_pink) else if (primary) ink else Color.rgb(239, 232, 224)))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
@@ -353,7 +367,9 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun render() {
         if (BuildConfig.FLAVOR == "clean" && !(preview && intent.getBooleanExtra("test_legacy_shift_ui", false))) {
+            footer.removeAllViews()
             if (pizzaMode) renderPizzaShift() else renderWizard()
+            if (pizzaMode || wizardStep != 0) pinActions()
             return
         }
         content.removeAllViews()
@@ -367,7 +383,7 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(label("Кто сегодня работает?", 20f))
             employees.forEach { employee ->
                 content.addView(CheckBox(this).apply {
-                    text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE)
+                    text = CookEmployeeLabels.label(employee, employees); setTextColor(ink)
                     isChecked = employee.id in selectedPeople
                     textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                     isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
@@ -396,7 +412,7 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(label(CookEmployeeLabels.label(employee, employees), 18f))
             content.addView(CheckBox(this).apply {
                 tag = "role:${employee.id}:cook"
-                text = "Повар"; setTextColor(Color.WHITE); isChecked = employee.id in cooks
+                text = "Повар"; setTextColor(ink); isChecked = employee.id in cooks
                 textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                 isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
                 setOnCheckedChangeListener { _, checked ->
@@ -413,7 +429,7 @@ class CookShiftActivity : AppCompatActivity() {
             })
             content.addView(CheckBox(this).apply {
                 tag = "role:${employee.id}:operator"
-                text = "Оператор"; setTextColor(Color.WHITE); isChecked = employee.id in operators
+                text = "Оператор"; setTextColor(ink); isChecked = employee.id in operators
                 textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                 isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
                 setOnCheckedChangeListener { _, checked -> if (checked) operators.add(employee.id) else operators.remove(employee.id); render() }
@@ -425,7 +441,7 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(RadioGroup(this).apply {
                 employees.filter { it.id in cooks }.forEach { employee ->
                     addView(RadioButton(this@CookShiftActivity).apply {
-                        id = View.generateViewId(); text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE)
+                        id = View.generateViewId(); text = CookEmployeeLabels.label(employee, employees); setTextColor(ink)
                         textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = employee.id == mainCook
                         isEnabled = !CookEmployeeLabels.ambiguous(employee, employees)
@@ -438,19 +454,30 @@ class CookShiftActivity : AppCompatActivity() {
         content.addView(action("Подтвердить смену", primary = true) { saveShift() }.apply { isEnabled = !busy })
     }
 
+    private fun pinActions() {
+        val buttons = (0 until content.childCount).map(content::getChildAt).filterIsInstance<Button>()
+        val actions = listOfNotNull(buttons.find { it.text == "Назад" }, buttons.find { it.tag == "primary-action" })
+        footer.setPadding(dp(18), dp(4), dp(18), dp(8))
+        for (button in actions) {
+            content.removeView(button)
+            footer.addView(button, LinearLayout.LayoutParams(0, -2, if (button.tag == "primary-action") 2f else 1f)
+                .apply { if (footer.childCount > 0) marginStart = dp(8) })
+        }
+    }
+
     private fun renderPizzaShift() {
         content.removeAllViews()
         (content.parent as? ScrollView)?.post { (content.parent as? ScrollView)?.scrollTo(0, 0) }
-        content.addView(label("Пицца-цех", 30f))
+        content.addView(label("Пицца-цех", 16f))
         if (offlineMode) content.addView(label("Нет сети", 16f, Color.rgb(255, 180, 210)))
         if (pizzaStep == 0) {
             content.addView(label("Сколько поваров сегодня?", 20f))
             content.addView(RadioGroup(this).apply {
                 (1..2).forEach { count ->
                     addView(RadioButton(this@CookShiftActivity).apply {
-                        id = View.generateViewId(); text = count.toString(); setTextColor(Color.WHITE)
+                        id = View.generateViewId(); text = count.toString(); setTextColor(ink)
                         textSize = 20f; minHeight = dp(48); buttonTintList = choiceTint()
-                        isChecked = count == pizzaCount; setOnClickListener { pizzaCount = count }
+                        styleChoice(); isChecked = count == pizzaCount; setOnClickListener { pizzaCount = count }
                     })
                 }
             })
@@ -465,7 +492,7 @@ class CookShiftActivity : AppCompatActivity() {
                 employees.filterNot { it.id in pizzaCooks }.forEach { employee ->
                     addView(RadioButton(this@CookShiftActivity).apply {
                         id = View.generateViewId(); text = CookEmployeeLabels.label(employee, employees)
-                        setTextColor(Color.WHITE); textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
+                        setTextColor(ink); textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isEnabled = !CookEmployeeLabels.ambiguous(employee, employees)
                         isChecked = pizzaChoice == employee.id; setOnClickListener { pizzaChoice = employee.id }
                         styleChoice()
@@ -484,8 +511,7 @@ class CookShiftActivity : AppCompatActivity() {
                 }
             })
             content.addView(action("Назад") {
-                pizzaChoice = null
-                if (pizzaStep > 1) pizzaCooks.removeAt(pizzaCooks.lastIndex)
+                pizzaChoice = if (pizzaStep > 1) pizzaCooks.removeAt(pizzaCooks.lastIndex) else null
                 pizzaStep--; render()
             })
             return
@@ -501,12 +527,13 @@ class CookShiftActivity : AppCompatActivity() {
             saveShift()
         }.apply { isEnabled = !busy })
         content.addView(action("Назад") {
-            pizzaCooks.removeAt(pizzaCooks.lastIndex); pizzaChoice = null; pizzaStep--; render()
+            pizzaChoice = pizzaCooks.removeAt(pizzaCooks.lastIndex); pizzaStep--; render()
         })
     }
 
     private fun renderWizard() {
         content.removeAllViews()
+        footer.setPadding(0, 0, 0, 0)
         content.gravity = if (wizardStep == 0) Gravity.CENTER_VERTICAL else Gravity.TOP
         (content.parent as? ScrollView)?.post { (content.parent as? ScrollView)?.scrollTo(0, 0) }
         if (offlineMode) content.addView(label("Нет сети", 16f, Color.rgb(255, 180, 210)))
@@ -518,7 +545,7 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(RadioGroup(this).apply {
                 values.forEach { number ->
                     addView(RadioButton(this@CookShiftActivity).apply {
-                        id = View.generateViewId(); text = number.toString(); setTextColor(Color.WHITE)
+                        id = View.generateViewId(); text = number.toString(); setTextColor(ink)
                         textSize = 20f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = number == choice
                         setOnClickListener { choice = number }
@@ -588,7 +615,7 @@ class CookShiftActivity : AppCompatActivity() {
                 employees.filter { it.id in allowed }.forEach { employee ->
                     addView(RadioButton(this@CookShiftActivity).apply {
                         id = View.generateViewId(); text = CookEmployeeLabels.label(employee, employees)
-                        setTextColor(Color.WHITE); textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
+                        setTextColor(ink); textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isEnabled = !CookEmployeeLabels.ambiguous(employee, employees)
                         isChecked = employee.id == wizardChoice
                         setOnClickListener { wizardChoice = employee.id }
@@ -611,7 +638,7 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(action("Назад") {
                 wizardChoice = null
                 if (index == 0) { wizard = null; wizardStep = if (staffCount == 1) 1 else 4 }
-                else { draft.removeLast(roles[index - 1]); wizardStep-- }
+                else { wizardChoice = draft.selected(roles[index - 1]).last(); draft.removeLast(roles[index - 1]); wizardStep-- }
                 render()
             })
             return
@@ -623,7 +650,7 @@ class CookShiftActivity : AppCompatActivity() {
                     val employee = employees.firstOrNull { it.id == employeeId } ?: return@forEach
                     addView(RadioButton(this@CookShiftActivity).apply {
                         id = View.generateViewId(); text = CookEmployeeLabels.label(employee, employees)
-                        setTextColor(Color.WHITE); textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
+                        setTextColor(ink); textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = employeeId == wizardChoice
                         setOnClickListener { wizardChoice = employeeId }
                         styleChoice()

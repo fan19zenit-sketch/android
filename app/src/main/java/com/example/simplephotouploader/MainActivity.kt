@@ -485,10 +485,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun styleCookChip(chip: com.google.android.material.chip.Chip) {
+        val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+        chip.setTextColor(android.content.res.ColorStateList(states, intArrayOf(android.graphics.Color.BLACK, android.graphics.Color.WHITE)))
         chip.chipBackgroundColor = android.content.res.ColorStateList(
             arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(android.graphics.Color.rgb(186, 56, 127), android.graphics.Color.rgb(48, 48, 48)))
-        chip.setTextColor(android.graphics.Color.WHITE)
+            intArrayOf(getColor(R.color.sushi_pink), android.graphics.Color.rgb(42, 38, 39)))
+        chip.setEnsureMinTouchTargetSize(true)
         chip.isAllCaps = false
     }
 
@@ -612,6 +614,9 @@ class MainActivity : AppCompatActivity() {
     private fun refreshCookPanel() {
         val panel = findViewById<View>(R.id.cookPanel) ?: return
         panel.visibility = if (cookMode) View.VISIBLE else View.GONE
+        findViewById<TextView>(R.id.shiftShortcut)?.apply {
+            visibility = panel.visibility; setOnClickListener { openShift() }
+        }
         if (!cookMode) return
         val next = findViewById<TextView>(R.id.cookNext)
         val choices = findViewById<LinearLayout>(R.id.cookChoices)
@@ -634,25 +639,50 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val nextLabel = when (source) {
+            "explicit_unknown" -> "Следующее фото: автор неизвестен"
             "shared" -> "Следующее фото: совместная работа"
             else -> snapshot?.employees?.firstOrNull { it.id == selected }?.let { "Следующее фото: ${CookEmployeeLabels.label(it, snapshot.employees)}" }
                 ?: "Смена не подтверждена"
         }
+        val selectionHint = if (selected == null) "" else if (selected == (cookSelection.persistentAuthor() ?: snapshot?.shift?.mainCookId)) "Основной" else "На 1 фото"
+        next.contentDescription = listOf(nextLabel, selectionHint).filter { it.isNotBlank() }.joinToString(", ")
         next.text = if (snapshot?.offlineShift != null) "$nextLabel · локальная смена" else nextLabel
         choices.removeAllViews()
-        if (snapshot != null) (snapshot.shift.cooks +
-                if (operatorPhotoAuthorEnabled && !isPizzaPhone()) snapshot.shift.operators else emptyList()).distinct().forEach { id ->
+        val authorIds = if (snapshot == null) emptyList() else (snapshot.shift.cooks +
+                if (operatorPhotoAuthorEnabled && !isPizzaPhone()) snapshot.shift.operators else emptyList()).distinct()
+        val shown = (listOfNotNull(selected) + authorIds).distinct().take(2)
+        if (snapshot != null) shown.forEach { id ->
             val employee = snapshot.employees.firstOrNull { it.id == id } ?: return@forEach
-            choices.addView(com.google.android.material.chip.Chip(this).apply {
-                styleCookChip(this)
-                tag = id
-                text = CookEmployeeLabels.label(employee, snapshot.employees)
-                isCheckable = true; isChecked = id == selected
-                isEnabled = !CookEmployeeLabels.ambiguous(employee, snapshot.employees)
-                setOnClickListener {
-                    if (isPizzaPhone()) selectCurrentAuthor(snapshot, id)
-                    else { cookSelection.selectOneShot(id); refreshCookPanel() }
+            val active = id == selected
+            val name = CookEmployeeLabels.label(employee, snapshot.employees)
+            val role = if (id == (cookSelection.persistentAuthor() ?: snapshot.shift.mainCookId)) "Основной"
+                else if (isPizzaPhone()) "До смены повара" else "На 1 фото"
+            val tone = if (active) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            val unit = resources.displayMetrics.density
+            choices.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                val pad = (10 * unit).toInt()
+                setPadding(pad, pad / 2, pad, pad / 2)
+                minimumHeight = (52 * unit).toInt()
+                layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = (4 * unit).toInt() }
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = resources.getDimension(R.dimen.sushi_radius)
+                    setColor(if (active) getColor(R.color.sushi_pink) else getColor(R.color.sushi_ink))
+                    setStroke((unit + .5f).toInt(), if (active) getColor(R.color.sushi_pink) else getColor(R.color.sushi_line))
                 }
+                isSelected = active
+                contentDescription = listOf(name, role, if (active) "Выбран" else "").filter { it.isNotEmpty() }.joinToString(", ")
+                addView(TextView(context).apply {
+                    text = name; tag = id; textSize = 15f; setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextColor(tone); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+                addView(TextView(context).apply { text = (if (active) "✓  " else "") + role; textSize = 12f; setTextColor(tone) })
+                if (authorIds.size > 1 && !CookEmployeeLabels.ambiguous(employee, snapshot.employees))
+                    setOnClickListener {
+                        if (isPizzaPhone()) selectCurrentAuthor(snapshot, id)
+                        else { cookSelection.selectOneShot(id); refreshCookPanel() }
+                    }
             })
         }
         val changeCook = findViewById<TextView>(R.id.cookChange)
@@ -668,17 +698,23 @@ class MainActivity : AppCompatActivity() {
                 }.show()
         }
         if (binding?.timezone != null && !isPizzaPhone()) {
+            val more = authorIds.filterNot { it in shown }.mapNotNull { id -> snapshot?.employees?.find { it.id == id } }
+                .filterNot { CookEmployeeLabels.ambiguous(it, snapshot!!.employees) }
             choices.addView(com.google.android.material.chip.Chip(this).apply {
-                styleCookChip(this)
-                text = "Совместно"; isCheckable = true; isChecked = source == "shared"
+                styleCookChip(this); text = "Ещё"
                 setOnClickListener {
-                    if (snapshot != null) cookSelection.selectUnassigned("shared")
-                    else unassignedSelection.select("shared", binding, CookLocalSession.identity(applicationContext), Instant.now())
-                    refreshCookPanel()
+                    val labels = more.map { CookEmployeeLabels.label(it, snapshot!!.employees) } + listOf("Совместно", "Автор неизвестен")
+                    AlertDialog.Builder(this@MainActivity).setTitle("Кто приготовил").setItems(labels.toTypedArray()) { _, i ->
+                        if (i < more.size) cookSelection.selectOneShot(more[i].id) else {
+                            val kind = if (i == more.size) "shared" else "explicit_unknown"
+                            if (snapshot != null) cookSelection.selectUnassigned(kind)
+                            else unassignedSelection.select(kind, binding, CookLocalSession.identity(applicationContext), Instant.now())
+                        }
+                        refreshCookPanel()
+                    }.show()
                 }
             })
         }
-        choices.addView(com.google.android.material.chip.Chip(this).apply { styleCookChip(this); text = "Смена"; setOnClickListener { openShift() } })
         maybePromptForShift()
     }
 

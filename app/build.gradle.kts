@@ -28,8 +28,8 @@ android {
         create("clean") {
             dimension = "track"
             applicationId = "com.example.photovchistotu"
-            versionCode = 20261116
-            versionName = "3.3.4"
+            versionCode = 20261118
+            versionName = "3.3.5"
             manifestPlaceholders["appLabel"] = "Фото в чистоту 2"
         }
     }

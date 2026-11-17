@@ -57,6 +57,60 @@ class CookShiftScreenshotTest {
     private fun choose(value: String) = onView(allOf(withText(value), isAssignableFrom(RadioButton::class.java)))
         .perform(scrollTo(), click())
 
+    @Test fun captureProductWorkflow() {
+        require(BuildConfig.BUILD_TYPE == "preview")
+        val inst = InstrumentationRegistry.getInstrumentation()
+        inst.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.CAMERA)
+        if (android.os.Build.VERSION.SDK_INT >= 33) inst.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putString(AppPrefs.KEY_CITY, "Шексна").putString(AppPrefs.KEY_BACKEND_URL, "http://127.0.0.1:9")
+            .putString(AppPrefs.KEY_DEVICE_UUID, "design-fixture").putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
+        val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Europe/Moscow"))
+        val binding = CookBinding("design", 1, "Europe/Moscow")
+        val people = listOf(CookEmployee("first", "Иванов Иван", listOf("cook")),
+            CookEmployee("second", "Петрова Анна", listOf("cook")))
+        val shift = CookShift("design-shift", 1, "design", now.toLocalDate().toString(), "Europe/Moscow",
+            now.minusMinutes(10).toOffsetDateTime().toString(), people.map { it.id }, emptyList(), "first")
+        val local = CookLocalSession.preferences(context)
+        local.edit().remove(CookOfflineSelectionCache.KEY).remove("current_photo_author").commit()
+        check(CookDeviceRosterCache(local).save(binding, people))
+        check(CookLocalSession.cache(context).save(CachedCookShift(binding, shift, people)))
+        val source = File(context.cacheDir, "design-product.jpg")
+        inst.context.assets.open("product-fixture.jpg").use { input -> source.outputStream().use { input.copyTo(it) } }
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        val fixtures = listOf("sent", "queued", "needs_review").mapIndexed { i, state ->
+            val time = now.minusMinutes(i + 1L).toInstant()
+            PhotoRecordEntity("design-$i", null, null, false, File(context.cacheDir, "design-$i.jpg").absolutePath,
+                source.absolutePath, time.toString(), null, state, if (i == 2) "Доставка не подтверждена сервером" else null, i == 1,
+                photoContext = CookPhotoContextFactory.create(binding, binding, shift, people[i % 2],
+                    if (i == 1) "one_shot" else "main_default", time))
+        }
+        try {
+            fixtures.forEach(dao::insert)
+            ActivityScenario.launch<SetupActivity>(Intent(context, SetupActivity::class.java).putExtra(SetupActivity.EXTRA_FORCE_EDIT,true)).use { save("10-setup") }
+            ActivityScenario.launch(MainActivity::class.java).use {
+                waitFor("Иванов Иван"); save("11-camera")
+                onView(withText("Петрова Анна")).perform(click()); save("12-one-shot")
+                onView(withText("Ещё")).perform(click()); save("13-other-authors")
+            }
+            ActivityScenario.launch(HistoryActivity::class.java).use {
+                waitFor("История"); save("14-history")
+                onView(withText("Проверить")).perform(click()); save("15-attention")
+                onView(withText("В пути")).perform(click()); save("16-queue")
+            }
+            ActivityScenario.launch<PhotoViewerActivity>(Intent(context, PhotoViewerActivity::class.java)
+                .putExtra(PhotoViewerActivity.EXTRA_PHOTO_PATH, source.absolutePath)
+                .putExtra(PhotoViewerActivity.EXTRA_CAPTURED_AT, fixtures[0].capturedAt)
+                .putExtra(PhotoViewerActivity.EXTRA_STATUS, "sent")).use { save("17-viewer") }
+            ActivityScenario.launch(SupportActivity::class.java).use { save("18-support") }
+        } finally {
+            fixtures.forEach { dao.deleteByPhotoPath(it.photoPath) }
+            source.delete()
+            CookLocalSession.cache(context).clear()
+            local.edit().remove(CookDeviceRosterCache.KEY).commit()
+        }
+    }
+
     @Test fun captureMainAndPizzaShiftScreens() {
         val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
         prefs.edit().putString(AppPrefs.KEY_CITY, "Пример").putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
@@ -72,7 +126,7 @@ class CookShiftScreenshotTest {
             waitFor("Сколько операторов?"); save("02b-operator-count"); choose("1"); next()
             waitFor("Сколько поваров?"); choose("2"); save("02c-cook-count"); next()
             waitFor("Сколько помощников?"); save("02d-assistant-count"); choose("0"); next()
-            waitFor("Выберите оператора 1"); choose("Сидорова Мария"); save("03-operator"); next()
+            waitFor("Выберите оператора 1"); onView(withText("Добавить сотрудника")).perform(scrollTo(), click()); save("02e-add"); androidx.test.espresso.Espresso.pressBack(); choose("Сидорова Мария"); save("03-operator"); next()
             waitFor("Выберите повара 1"); choose("Иванов Иван"); save("03b-first-cook"); next()
             waitFor("Выберите повара 2"); choose("Петрова Анна"); save("04-second-cook"); next()
             waitFor("Кто основной повар?"); choose("Иванов Иван"); save("05-main-cook"); next()
