@@ -261,7 +261,7 @@ class CookShiftActivity : AppCompatActivity() {
             return
         }
         content.addView(label("Кто кем работает сегодня?", 20f))
-        content.addView(label("Отметьте роли выбранных сотрудников. Оператор не обязателен.", 16f))
+        content.addView(label("Отметьте поваров и оператора. Роли можно совмещать; оператор не обязателен.", 16f))
         employees.filter { it.id in selectedPeople }.forEach { employee ->
             content.addView(label(CookEmployeeLabels.label(employee, employees), 18f))
             content.addView(CheckBox(this).apply {
@@ -291,6 +291,7 @@ class CookShiftActivity : AppCompatActivity() {
         }
         if (cooks.isNotEmpty()) {
             content.addView(label("Основной повар", 20f))
+            if (cooks.size > 1) content.addView(label("Остальные повара — дополнительные", 16f))
             content.addView(RadioGroup(this).apply {
                 employees.filter { it.id in cooks }.forEach { employee ->
                     addView(RadioButton(this@CookShiftActivity).apply {

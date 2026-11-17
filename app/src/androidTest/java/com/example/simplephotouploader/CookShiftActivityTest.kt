@@ -187,6 +187,9 @@ class CookShiftActivityTest {
             onView(withText("Далее")).perform(scrollTo(), click())
             role("cook-1", "cook")
             role("cook-2", "cook")
+            onView(withText("Остальные повара — дополнительные")).perform(scrollTo())
+                .check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                    androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
             onView(allOf(withText("Повар 2"), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
             onView(withText("Подтвердить смену")).perform(scrollTo(), click())
             while (CookLocalSession.cache(context).load() == null && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
