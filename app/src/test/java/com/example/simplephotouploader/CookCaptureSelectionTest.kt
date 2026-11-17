@@ -29,6 +29,38 @@ class CookCaptureSelectionTest {
         assertEquals("d", state.reserve()!!.cookId)
     }
 
+    @Test fun pizzaCookRemainsSelectedAcrossPhotosAndDoesNotRelabelAnInFlightCapture() {
+        val state = CookCaptureSelection()
+        state.setRoster(setOf("first", "second"), "first")
+        val first = state.reserve()!!
+        state.selectPersistent("second")
+        state.finish(first, true)
+        assertEquals("first", first.cookId)
+        val second = state.reserve()!!
+        assertEquals("second", second.cookId)
+        assertEquals("one_shot", second.selectionSource)
+        state.finish(second, true)
+        val third = state.reserve()!!
+        assertEquals("second", third.cookId)
+        state.finish(third, true)
+        state.selectPersistent("first")
+        assertEquals("first", state.reserve()!!.cookId)
+    }
+
+    @Test fun singlePhotoCanUseOriginalCookWhileSecondCookIsPersistent() {
+        val state = CookCaptureSelection()
+        state.setRoster(setOf("first", "second"), "first")
+        state.selectPersistent("second")
+        state.selectOneShot("first")
+        val single = state.reserve()!!
+        assertEquals("first", single.cookId)
+        assertEquals("main_default", single.selectionSource)
+        state.finish(single, true)
+        val next = state.reserve()!!
+        assertEquals("second", next.cookId)
+        assertEquals("one_shot", next.selectionSource)
+    }
+
     @Test fun staleFinishDoesNotReleaseActiveCapture() {
         val state = CookCaptureSelection()
         state.setRoster(setOf("a"), "a")

@@ -92,6 +92,37 @@ class CookOfflineDatabaseTest {
         assertTrue(dao.pendingEmployees("https://other.test", first.deviceUuid, first.branchRef, 1).isEmpty())
     }
 
+    @Test fun migrationPreservesOfflineShiftAndEmployee() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "cook-offline-v1-migration-test"
+        context.deleteDatabase(name)
+        context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { old ->
+            old.execSQL("CREATE TABLE offline_employees (backendUrl TEXT NOT NULL, deviceUuid TEXT NOT NULL, branchRef TEXT NOT NULL, bindingRevision INTEGER NOT NULL, provisionalId TEXT NOT NULL, requestId TEXT NOT NULL, name TEXT NOT NULL, rolesJson TEXT NOT NULL, canonicalId TEXT, PRIMARY KEY(backendUrl, deviceUuid, branchRef, bindingRevision, provisionalId))")
+            old.execSQL("CREATE UNIQUE INDEX index_offline_employees_backendUrl_deviceUuid_branchRef_bindingRevision_requestId ON offline_employees(backendUrl, deviceUuid, branchRef, bindingRevision, requestId)")
+            old.execSQL("CREATE TABLE offline_shifts (backendUrl TEXT NOT NULL, deviceUuid TEXT NOT NULL, branchRef TEXT NOT NULL, bindingRevision INTEGER NOT NULL, provisionalId TEXT NOT NULL, requestId TEXT NOT NULL, serverShiftId TEXT NOT NULL, operationalDate TEXT NOT NULL, timezone TEXT NOT NULL, confirmedAt TEXT NOT NULL, cooksJson TEXT NOT NULL, operatorsJson TEXT NOT NULL, mainCookJson TEXT NOT NULL, canonicalRevision INTEGER, PRIMARY KEY(backendUrl, deviceUuid, branchRef, bindingRevision, provisionalId))")
+            old.execSQL("CREATE UNIQUE INDEX index_offline_shifts_backendUrl_deviceUuid_branchRef_bindingRevision_requestId ON offline_shifts(backendUrl, deviceUuid, branchRef, bindingRevision, requestId)")
+            val person = employee()
+            old.execSQL("INSERT INTO offline_employees VALUES (?,?,?,?,?,?,?,?,?)", arrayOf(person.backendUrl, person.deviceUuid,
+                person.branchRef, person.bindingRevision, person.provisionalId, person.requestId, person.name, person.rolesJson, null))
+            val shift = shift()
+            old.execSQL("INSERT INTO offline_shifts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", arrayOf(shift.backendUrl, shift.deviceUuid,
+                shift.branchRef, shift.bindingRevision, shift.provisionalId, shift.requestId, shift.serverShiftId,
+                shift.operationalDate, shift.timezone, shift.confirmedAt, shift.cooksJson, shift.operatorsJson, shift.mainCookJson, null))
+            old.version = 1
+        }
+        val restored = Room.databaseBuilder(context, CookOfflineDatabase::class.java, name)
+            .addMigrations(CookOfflineDatabase.MIGRATION_1_2).allowMainThreadQueries().build()
+        try {
+            val oldShift = shift()
+            assertEquals(oldShift, restored.queue().shift(oldShift.backendUrl, oldShift.deviceUuid, oldShift.branchRef,
+                oldShift.bindingRevision, oldShift.provisionalId))
+            val oldEmployee = employee()
+            assertEquals(oldEmployee, restored.queue().employee(oldEmployee.backendUrl, oldEmployee.deviceUuid,
+                oldEmployee.branchRef, oldEmployee.bindingRevision, oldEmployee.provisionalId))
+        } finally { restored.close() }
+        context.deleteDatabase(name)
+    }
+
     @Test fun offlineShiftWithoutOperatorsIsPersisted() {
         val record = shift().copy(operatorsJson = "[]")
         dao.enqueueEmployee(employee())

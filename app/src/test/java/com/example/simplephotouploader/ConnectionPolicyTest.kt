@@ -33,8 +33,11 @@ class ConnectionPolicyTest {
         val routes = listOf(
             "GET" to "/cook-v2/capabilities", "GET" to "/cook-v2/binding?deviceUuid=device-a",
             "GET" to "/cook-v2/employees?deviceUuid=device-a",
+            "GET" to "/cook-v2/employees/hidden?deviceUuid=device-a",
             "GET" to "/cook-v2/shifts?deviceUuid=device-a&operationalDate=2026-11-06",
+            "GET" to "/cook-v2/branch-shift?deviceUuid=device-a&operationalDate=2026-11-06",
             "POST" to "/cook-v2/binding/initialize", "POST" to "/cook-v2/employees/manual",
+            "POST" to "/cook-v2/employees/visibility",
             "POST" to "/cook-v2/shifts", "POST" to "/cook-v2/shift-presence", "POST" to "/cook-v2/upload", "PUT" to "/cook-v2/photo-context")
         routes.forEach { (method, path) ->
             assertEquals(listOf("$primary$path", "$reserve$path"), ConnectionPolicy.apiAddresses("$primary$path", method))

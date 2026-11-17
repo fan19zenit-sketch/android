@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="device_mode_label">Какой это телефон?</string>
+    <string name="device_mode_main">Основной телефон</string>
+    <string name="device_mode_pizza">Телефон пицца-цеха</string>
     <string name="diagnostics_share">Диагностика</string>
     <string name="diagnostics_preparing">Подготовка…</string>
     <string name="diagnostics_share_failed">Не удалось подготовить файл диагностики</string>

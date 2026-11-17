@@ -14,7 +14,8 @@ class CookPendingShiftStore(private val preferences: SharedPreferences) {
         val data = JSONObject().put("request", pending.requestId).put("branch", binding.branchRef)
             .put("bindingRevision", binding.revision).put("timezone", shift.timezone)
             .put("shift", shift.id).put("day", shift.operationalDate).put("confirmedAt", shift.confirmedAt)
-            .put("cooks", JSONArray(shift.cooks)).put("operators", JSONArray(shift.operators)).put("main", shift.mainCookId)
+            .put("cooks", JSONArray(shift.cooks)).put("operators", JSONArray(shift.operators))
+            .put("assistants", JSONArray(shift.assistants)).put("main", shift.mainCookId)
         return preferences.edit().putString(KEY, data.toString()).commit()
     }
 
@@ -29,7 +30,8 @@ class CookPendingShiftStore(private val preferences: SharedPreferences) {
             val timezone = data.getString("timezone")
             val binding = CookBinding(data.getString("branch"), data.getInt("bindingRevision"), timezone)
             val shift = CookShift(data.getString("shift"), 0, binding.branchRef, data.getString("day"), timezone,
-                data.getString("confirmedAt"), strings("cooks"), strings("operators"), data.getString("main"))
+                data.getString("confirmedAt"), strings("cooks"), strings("operators"), data.getString("main"),
+                if (data.has("assistants")) strings("assistants") else emptyList())
             PendingCookShift(data.getString("request"), binding, shift)
         } catch (_: Exception) { null }
     }

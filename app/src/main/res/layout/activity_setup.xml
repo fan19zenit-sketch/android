@@ -28,6 +28,32 @@
             android:inputType="textCapWords" />
 
         <TextView
+            android:id="@+id/tvDeviceMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/device_mode_label"
+            android:visibility="gone" />
+
+        <RadioGroup
+            android:id="@+id/rgDeviceMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+            <RadioButton
+                android:id="@+id/rbDeviceMain"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/device_mode_main" />
+            <RadioButton
+                android:id="@+id/rbDevicePizza"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/device_mode_pizza" />
+        </RadioGroup>
+
+        <TextView
             android:id="@+id/tvTransportLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

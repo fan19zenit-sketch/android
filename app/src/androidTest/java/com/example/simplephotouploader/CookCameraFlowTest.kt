@@ -48,9 +48,10 @@ class CookCameraFlowTest {
             automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
         }
         context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
-            .putString(AppPrefs.KEY_CITY, "Тест").remove(AppPrefs.KEY_DEVICE_UUID).commit()
+            .putString(AppPrefs.KEY_CITY, "Тест").remove(AppPrefs.KEY_DEVICE_UUID).remove(AppPrefs.KEY_DEVICE_MODE).commit()
         CookLocalSession.cache(context).clear()
         CookPendingShiftStore(CookLocalSession.preferences(context)).clear()
+        CookLocalSession.preferences(context).edit().remove("current_photo_author").commit()
     }
 
     private fun await(timeoutMs: Long = 20_000, predicate: () -> Boolean) {
@@ -70,25 +71,39 @@ class CookCameraFlowTest {
         onView(withId(R.id.captureButton)).check(matches(isEnabled())); true
     } catch (_: Throwable) { false }
 
+    private fun choose(text: String) = onView(allOf(withText(text), isAssignableFrom(RadioButton::class.java)))
+        .perform(scrollTo(), click())
+
+    private fun next() = onView(withText("Далее")).perform(scrollTo(), click())
+
+    private fun chooseShift(twoCooks: Boolean) {
+        await { visible("Начать смену") }
+        onView(withText("Начать смену")).perform(click())
+        choose(if (twoCooks) "3" else "2"); next()
+        choose("1"); next()
+        choose(if (twoCooks) "2" else "1"); next()
+        choose("0"); next()
+        choose("Оператор 1"); next()
+        choose("Повар 1"); next()
+        if (twoCooks) {
+            choose("Повар 2"); next()
+            choose("Повар 1"); next()
+        }
+        onView(withText("Начать смену")).perform(scrollTo(), click())
+    }
+
     @Test fun secondCookIsConsumedByOneLocallySavedPhoto() {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getAllHistory().map { it.id }.toSet()
         ActivityScenario.launch(MainActivity::class.java).use {
             await { visible("Смена") }
             onView(withText("Смена")).perform(scrollTo(), click())
-            await { visible("Повар 1") }
-            onView(withText("Повар 1")).perform(click())
-            onView(withText("Повар 2")).perform(click())
-            onView(withText("Оператор 1")).perform(scrollTo(), click())
-            onView(withText("Далее")).perform(scrollTo(), click())
-            role("cook-1", "cook")
-            role("cook-2", "cook")
-            role("operator-1", "operator")
-            onView(allOf(withText("Повар 1"), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
-            onView(withText("Подтвердить смену")).perform(scrollTo(), click())
+            chooseShift(twoCooks = true)
             await { visible("Повар 2") && cameraReady() }
             onView(withText("Автор неизвестен")).check(doesNotExist())
+            onView(withText("Повар 2")).check(matches(withTagValue(`is`("cook-2" as Any))))
             onView(withText("Повар 2")).perform(click())
+            onView(withId(R.id.cookNext)).check(matches(withText("Следующее фото: Повар 2")))
             onView(withId(R.id.captureButton)).perform(click())
             await { dao.getAllHistory().count { it.id !in existing } >= 1 && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
@@ -99,20 +114,70 @@ class CookCameraFlowTest {
         }
     }
 
+    @Test fun changingCurrentCookPersistsAcrossPhotosAndActivityRecreation() {
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        val existing = dao.getAllHistory().map { it.id }.toSet()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            await { visible("Смена") }
+            onView(withText("Смена")).perform(scrollTo(), click())
+            chooseShift(twoCooks = true)
+            await { visible("Сменить повара") && cameraReady() }
+            onView(withText("Сменить повара")).perform(click())
+            onView(withText("Повар 2")).inRoot(isDialog()).perform(click())
+            await { visible("Следующее фото: Повар 2") }
+            onView(withId(R.id.captureButton)).perform(click())
+            await { dao.getAllHistory().count { it.id !in existing } >= 1 && cameraReady() }
+            scenario.recreate()
+            await { visible("Следующее фото: Повар 2") && cameraReady() }
+            onView(withId(R.id.captureButton)).perform(click())
+            await { dao.getAllHistory().count { it.id !in existing } >= 2 }
+            val photos = dao.getAllHistory().filter { it.id !in existing }.sortedBy { it.capturedAt }
+            assertEquals("cook-2", JSONObject(photos[0].photoContext!!).getJSONObject("cookRef").getString("id"))
+            assertEquals("cook-2", JSONObject(photos[1].photoContext!!).getJSONObject("cookRef").getString("id"))
+        }
+    }
+
+    @Test fun pizzaCookRemainsAuthorAfterMultiplePhotosAndRecreation() {
+        val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_PIZZA).commit()
+        val zone = ZoneId.of("Europe/Moscow")
+        val now = Instant.now().atZone(zone)
+        val binding = CookBinding("preview", 1, zone.id)
+        val people = listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")),
+            CookEmployee("cook-2", "Повар 2", listOf("cook")))
+        val shift = CookShift("pizza-test", 1, "preview", now.toLocalDate().toString(), zone.id,
+            now.minusSeconds(1).toOffsetDateTime().toString(), listOf("cook-1", "cook-2"), emptyList(), "cook-1")
+        assertTrue(CookLocalSession.cache(context).save(CachedCookShift(binding, shift, people)))
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        val existing = dao.getAllHistory().map { it.id }.toSet()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                await { visible("Повар 2") && cameraReady() }
+                onView(withText("Повар 2")).perform(click())
+                await { visible("Следующее фото: Повар 2") }
+                assertEquals("cook-2", JSONObject(CookLocalSession.preferences(context)
+                    .getString("current_photo_author", null)!!).getString("employee"))
+                onView(withId(R.id.captureButton)).perform(click())
+                await { dao.getAllHistory().count { it.id !in existing } >= 1 && cameraReady() }
+                scenario.recreate()
+                await { visible("Следующее фото: Повар 2") && cameraReady() }
+                onView(withId(R.id.captureButton)).perform(click())
+                await { dao.getAllHistory().count { it.id !in existing } >= 2 }
+                val photos = dao.getAllHistory().filter { it.id !in existing }.sortedBy { it.capturedAt }
+                assertEquals("cook-2", JSONObject(photos[0].photoContext!!).getJSONObject("cookRef").getString("id"))
+                assertEquals("cook-2", JSONObject(photos[1].photoContext!!).getJSONObject("cookRef").getString("id"))
+            }
+        } finally { prefs.edit().remove(AppPrefs.KEY_DEVICE_MODE).commit() }
+    }
+
     @Test fun changedDeviceCannotCaptureWithPreviousDeviceShift() {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getAllHistory().map { it.id }.toSet()
         ActivityScenario.launch(MainActivity::class.java).use {
             await { visible("Смена") }
             onView(withText("Смена")).perform(scrollTo(), click())
-            await { visible("Повар 1") }
-            onView(withText("Повар 1")).perform(click())
-            onView(withText("Оператор 1")).perform(scrollTo(), click())
-            onView(withText("Далее")).perform(scrollTo(), click())
-            role("cook-1", "cook")
-            role("operator-1", "operator")
-            onView(withText("Подтвердить смену")).perform(scrollTo(), click())
-            await { visible("Повар 1 · основной") && cameraReady() }
+            chooseShift(twoCooks = false)
+            await { visible("Повар 1") && cameraReady() }
             context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
                 .putString(AppPrefs.KEY_DEVICE_UUID, "other-device").commit()
             onView(withId(R.id.captureButton)).perform(click())
@@ -131,9 +196,9 @@ class CookCameraFlowTest {
         val launch = Intent(context, MainActivity::class.java).putExtra("test_shift_clock_ms", morning.toEpochMilli())
         ActivityScenario.launch<MainActivity>(launch).use { scenario ->
             await { cameraReady() && visible("Смена") }
-            assertTrue(!visible("Далее"))
+            assertTrue(!visible("Начать смену"))
             scenario.onActivity { it.intent.putExtra("test_shift_clock_ms", morning.plusSeconds(1).toEpochMilli()) }
-            await { visible("Далее") }
+            await { visible("Начать смену") }
         }
     }
 
@@ -153,7 +218,7 @@ class CookCameraFlowTest {
             CookShift("same-name-shift", 1, binding.branchRef, now.toLocalDate().toString(), zone.id,
                 now.minusSeconds(1).toOffsetDateTime().toString(), listOf("cook-1"), listOf("operator-1"), "cook-1"), people)))
         ActivityScenario.launch(MainActivity::class.java).use {
-            await { visible("Повар 1 · уточнить имя · основной") && cameraReady() }
+            await { visible("Повар 1 · уточнить имя") && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
             await { visible("У сотрудников одинаковые имена. Попросите управляющего уточнить их в справочнике.") }
             SystemClock.sleep(500)

@@ -32,15 +32,17 @@ class CookOfflineSync(private val dao: CookOfflineDao, private val client: CookW
             if (binding.timezone != null && pending.timezone != binding.timezone) throw CookOfflineConflict("Shift timezone changed")
             val cooks = resolveArray(scope, pending.cooksJson)
             val operators = resolveArray(scope, pending.operatorsJson)
+            val assistants = resolveArray(scope, pending.assistantsJson)
             val main = resolve(scope, JSONObject(pending.mainCookJson))
-            if (cooks == null || operators == null || main == null) {
+            if (cooks == null || operators == null || assistants == null || main == null) {
                 waiting++
                 continue
             }
-            if (main !in cooks || cooks.size != cooks.toSet().size || operators.size != operators.toSet().size)
+            if (main !in cooks || cooks.size != cooks.toSet().size || operators.size != operators.toSet().size ||
+                assistants.size != assistants.toSet().size)
                 throw CookOfflineConflict("Resolved shift has conflicting employees")
             val shift = CookShift(pending.serverShiftId, 0, binding.branchRef, pending.operationalDate,
-                pending.timezone, pending.confirmedAt, cooks, operators, main)
+                pending.timezone, pending.confirmedAt, cooks, operators, main, assistants)
             val confirmed = client.confirmShift(scope.deviceUuid, pending.requestId, shift, binding, pending.provisionalId)
                 ?: throw IOException("Missing shift confirmation")
             dao.confirmShift(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision,

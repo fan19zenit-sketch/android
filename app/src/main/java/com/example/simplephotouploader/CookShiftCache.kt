@@ -23,7 +23,8 @@ class CookShiftCache(private val preferences: SharedPreferences) {
             .put("bindingTimezone", snapshot.binding.timezone ?: JSONObject.NULL)
             .put("shiftRevision", shift.revision).put("day", shift.operationalDate).put("timezone", shift.timezone)
             .put("confirmedAt", shift.confirmedAt).put("cooks", JSONArray(shift.cooks))
-            .put("operators", JSONArray(shift.operators)).put("mainCook", shift.mainCookId).put("employees", employees)
+            .put("operators", JSONArray(shift.operators)).put("assistants", JSONArray(shift.assistants))
+            .put("mainCook", shift.mainCookId).put("employees", employees)
         return preferences.edit().putString(KEY, data.toString()).commit()
     }
 
@@ -36,7 +37,8 @@ class CookShiftCache(private val preferences: SharedPreferences) {
             val binding = CookBinding(data.getString("branch"), data.getInt("bindingRevision"), timezone)
             val shift = CookShift(data.getString("shiftId"), data.getInt("shiftRevision"), binding.branchRef,
                 data.getString("day"), data.getString("timezone"), data.getString("confirmedAt"),
-                strings(data.getJSONArray("cooks")), strings(data.getJSONArray("operators")), data.getString("mainCook"))
+                strings(data.getJSONArray("cooks")), strings(data.getJSONArray("operators")), data.getString("mainCook"),
+                data.optJSONArray("assistants")?.let(::strings) ?: emptyList())
             val array = data.getJSONArray("employees")
             val employees = (0 until array.length()).map { index ->
                 val entry = array.getJSONObject(index)
@@ -57,7 +59,7 @@ class CookShiftCache(private val preferences: SharedPreferences) {
         require(binding.timezone == null || binding.timezone == shift.timezone)
         require(shift.id.isNotBlank() && shift.revision > 0 && shift.cooks.isNotEmpty())
         require(shift.mainCookId in shift.cooks && shift.cooks.size == shift.cooks.toSet().size &&
-            shift.operators.size == shift.operators.toSet().size)
+            shift.operators.size == shift.operators.toSet().size && shift.assistants.size == shift.assistants.toSet().size)
         java.time.LocalDate.parse(shift.operationalDate)
         ZoneId.of(shift.timezone)
         OffsetDateTime.parse(shift.confirmedAt)
@@ -68,6 +70,7 @@ class CookShiftCache(private val preferences: SharedPreferences) {
         // Roster roles are defaults; actual roles are explicitly selected for this shift.
         require(shift.cooks.all { it in employees })
         require(shift.operators.all { it in employees })
+        require(shift.assistants.all { it in employees })
     }
 
     private fun strings(array: JSONArray): List<String> = (0 until array.length()).map { array.getString(it) }

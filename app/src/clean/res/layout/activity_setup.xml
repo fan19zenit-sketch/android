@@ -79,6 +79,37 @@
                 android:textColor="@color/clean_text_secondary"
                 android:textSize="14sp" />
 
+            <TextView
+                android:id="@+id/tvDeviceMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:fontFamily="sans-serif-medium"
+                android:text="@string/device_mode_label"
+                android:textColor="@color/clean_text_primary"
+                android:textSize="16sp" />
+
+            <RadioGroup
+                android:id="@+id/rgDeviceMode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+                <RadioButton
+                    android:id="@+id/rbDeviceMain"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/device_mode_main"
+                    android:textColor="@color/clean_text_primary" />
+                <RadioButton
+                    android:id="@+id/rbDevicePizza"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:text="@string/device_mode_pizza"
+                    android:textColor="@color/clean_text_primary" />
+            </RadioGroup>
+
             <Button
                 android:id="@+id/btnSave"
                 android:layout_width="match_parent"

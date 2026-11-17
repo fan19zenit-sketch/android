@@ -60,4 +60,20 @@ class CookShiftWizardTest {
         assertThrows(IllegalArgumentException::class.java) { draft.setCounts(3, 3, 0) }
         draft.setCounts(2, 4, 0)
     }
+
+    @Test fun goingBackRestoresTheLastPersonForSelection() {
+        val draft = CookShiftWizard(2)
+        draft.setCounts(1, 2, 0)
+        draft.select(operator, "one")
+        draft.select(cook, "one")
+        draft.select(cook, "two")
+        draft.selectMainCook("two")
+        draft.removeLast(cook)
+        assertEquals("one", draft.mainCook)
+        assertEquals(listOf("two"), draft.available(cook, listOf("one", "two")))
+        draft.select(cook, "two")
+        assertFalse(draft.isComplete())
+        draft.selectMainCook("two")
+        assertTrue(draft.isComplete())
+    }
 }

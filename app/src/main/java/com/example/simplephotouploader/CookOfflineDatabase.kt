@@ -2,6 +2,7 @@ package com.example.simplephotouploader
 
 import android.content.Context
 import androidx.room.Dao
+import androidx.room.ColumnInfo
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Index
@@ -11,6 +12,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -19,16 +22,21 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Separate from the existing photo queue; no database is opened until requested. */
-@Database(entities = [OfflineCookEmployee::class, OfflineCookShift::class], version = 1, exportSchema = false)
+@Database(entities = [OfflineCookEmployee::class, OfflineCookShift::class], version = 2, exportSchema = false)
 abstract class CookOfflineDatabase : RoomDatabase() {
     abstract fun queue(): CookOfflineDao
 
     companion object {
         @Volatile private var instance: CookOfflineDatabase? = null
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE offline_shifts ADD COLUMN assistantsJson TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
 
         fun get(context: Context): CookOfflineDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, CookOfflineDatabase::class.java,
-                "cook-offline-v2-db").build().also { instance = it }
+                "cook-offline-v2-db").addMigrations(MIGRATION_1_2).build().also { instance = it }
         }
     }
 }
@@ -51,6 +59,7 @@ data class OfflineCookShift(
     val operationalDate: String, val timezone: String, val confirmedAt: String,
     val cooksJson: String, val operatorsJson: String, val mainCookJson: String,
     val canonicalRevision: Int? = null,
+    @ColumnInfo(defaultValue = "'[]'") val assistantsJson: String = "[]",
 )
 
 @Dao
@@ -157,10 +166,13 @@ object CookOfflineValidation {
         OffsetDateTime.parse(value.confirmedAt)
         val cooks = references(value.cooksJson)
         val operators = references(value.operatorsJson)
+        val assistants = references(value.assistantsJson)
         val main = reference(JSONObject(value.mainCookJson))
         require(cooks.isNotEmpty() && main in cooks)
-        require(cooks.size == cooks.toSet().size && operators.size == operators.toSet().size)
+        require(cooks.size == cooks.toSet().size && operators.size == operators.toSet().size &&
+            assistants.size == assistants.toSet().size)
         require(cooks.map { it.second }.distinct().size == cooks.size && operators.map { it.second }.distinct().size == operators.size)
+        require(assistants.map { it.second }.distinct().size == assistants.size)
     }
 
     private fun references(raw: String): List<Pair<String, String>> {

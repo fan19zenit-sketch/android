@@ -59,6 +59,14 @@ internal class CookShiftWizard(val staffCount: Int) {
 
     fun selected(role: Role): List<String> = choices.getValue(role).toList()
 
+    fun removeLast(role: Role) {
+        val selected = choices.getValue(role)
+        if (selected.isNotEmpty()) {
+            val removed = selected.removeAt(selected.lastIndex)
+            if (role == Role.COOK && (mainCook == removed || mainCook !in selected)) mainCook = selected.singleOrNull()
+        }
+    }
+
     fun isComplete(): Boolean = Role.entries.all { choices.getValue(it).size == limits[it] } &&
         allEmployees().size == staffCount && mainCook in choices.getValue(Role.COOK)
 
