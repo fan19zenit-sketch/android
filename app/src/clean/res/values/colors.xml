@@ -1,12 +1,12 @@
 <resources>
-    <color name="clean_pink">#B93669</color>
-    <color name="clean_pink_dark">#92234F</color>
-    <color name="clean_black">#202529</color>
-    <color name="clean_black_soft">#303639</color>
-    <color name="clean_surface">#F8F5F1</color>
+    <color name="clean_pink">#BD3A75</color>
+    <color name="clean_pink_dark">#952956</color>
+    <color name="clean_black">#191919</color>
+    <color name="clean_black_soft">#303030</color>
+    <color name="clean_surface">#F7F6F4</color>
     <color name="clean_surface_card">#FFFFFF</color>
-    <color name="clean_text_primary">#202529</color>
-    <color name="clean_text_secondary">#636C70</color>
+    <color name="clean_text_primary">#191919</color>
+    <color name="clean_text_secondary">#686866</color>
     <color name="clean_status_bg">#DE202529</color>
     <color name="clean_icon_bg">#B93669</color>
     <color name="clean_icon_fg">#FFFFFF</color>

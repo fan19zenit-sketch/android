@@ -109,7 +109,10 @@ class HistoryAdapter(
                 (item.jobId.isNullOrBlank() && !item.chatDeleted &&
                 item.status in setOf("needs_review", "error", "retrying") && File(item.photoPath).exists())) View.VISIBLE else View.GONE
             retryButton?.setOnClickListener { onRetry(item) }
-            status.setTextColor(android.graphics.Color.parseColor(when {
+            status.setTextColor(android.graphics.Color.parseColor(if (BuildConfig.FLAVOR == "clean") when {
+                item.status in setOf("error", "needs_review", "delivery_unknown") -> "#9B2456"
+                else -> "#343434"
+            } else when {
                 item.status == "sent" && !item.chatDeleted -> "#25745B"
                 item.status in setOf("error", "needs_review", "delivery_unknown") -> "#B33C4A"
                 else -> "#765725"

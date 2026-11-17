@@ -1,45 +1,49 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
-    android:background="@color/clean_surface" android:orientation="vertical" android:padding="20dp">
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:text="КОНТРОЛЬ ОТПРАВКИ" android:letterSpacing="0.12" android:textSize="11sp"
-        android:fontFamily="sans-serif-medium" android:textColor="@color/clean_pink" />
+    android:background="@color/clean_surface" android:orientation="vertical"
+    android:paddingHorizontal="20dp" android:paddingTop="20dp" android:paddingBottom="12dp">
     <TextView android:id="@+id/tvHistoryHeader" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Ваши снимки"
-        android:fontFamily="sans-serif-medium" android:textSize="32sp" android:textColor="@color/clean_text_primary" />
+        android:layout_height="wrap_content" android:text="@string/history_title"
+        android:fontFamily="sans-serif-medium" android:letterSpacing="-0.02" android:textSize="30sp"
+        android:textColor="@color/clean_text_primary" />
     <TextView android:id="@+id/tvHistorySubheader" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:layout_marginTop="10dp" android:padding="14dp"
-        android:background="@drawable/clean_card_background" android:text="@string/history_subtitle"
+        android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="@string/history_loading"
         android:textColor="@color/clean_text_secondary" android:textSize="13sp" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_marginTop="12dp" android:orientation="horizontal">
         <Button android:id="@+id/btnHistoryAll" style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp"
-            android:text="@string/history_filter_all" android:textAllCaps="false" />
+            android:text="@string/history_filter_all" android:textAllCaps="false" android:letterSpacing="0" />
         <Button android:id="@+id/btnHistoryProgress" style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp"
-            android:text="@string/history_filter_progress" android:textAllCaps="false" />
+            android:text="@string/history_filter_progress" android:textAllCaps="false" android:letterSpacing="0" />
         <Button android:id="@+id/btnHistoryAttention" style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="0dp" android:layout_weight="1.5" android:layout_height="48dp"
-            android:textAllCaps="false" />
+            android:textAllCaps="false" android:letterSpacing="0" />
     </LinearLayout>
     <TextView android:id="@+id/tvEmpty" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:padding="30dp" android:gravity="center" android:text="@string/history_empty"
         android:textColor="@color/clean_text_secondary" android:visibility="gone" />
     <androidx.recyclerview.widget.RecyclerView android:id="@+id/recyclerHistory"
         android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-        android:layout_marginTop="16dp" android:clipToPadding="false" android:paddingBottom="12dp" />
-    <Button android:id="@+id/btnSupport" style="@style/Widget.MaterialComponents.Button.TextButton"
-        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
-        android:text="@string/support_title" android:textAllCaps="false" />
+        android:layout_marginTop="8dp" android:clipToPadding="false" android:paddingBottom="12dp" />
+    <Button android:id="@+id/btnAvailableUpdate" style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent" android:layout_height="48dp" android:textAllCaps="false"
+        android:letterSpacing="0" android:visibility="gone" />
     <Button android:id="@+id/btnBack" android:layout_width="match_parent" android:layout_height="56dp"
-        android:text="@string/history_back" android:textAllCaps="false" android:textColor="#FFFFFF" />
+        android:text="@string/history_back" android:textAllCaps="false" android:letterSpacing="0"
+        android:fontFamily="sans-serif-medium" android:textColor="#FFFFFF" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center_vertical">
+        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="4dp">
+        <Button android:id="@+id/btnSupport" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="48dp" android:minWidth="0dp"
+            android:paddingHorizontal="8dp" android:text="@string/diagnostics_share" android:textAllCaps="false"
+            android:letterSpacing="0" />
         <TextView android:id="@+id/versionText" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:textSize="12sp" android:textColor="@color/clean_text_secondary" />
+            android:layout_weight="1" android:gravity="center" android:textSize="12sp" android:textColor="@color/clean_text_secondary" />
         <Button android:id="@+id/btnChangeCity" style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content" android:layout_height="48dp" android:text="@string/history_change_city"
-            android:textAllCaps="false" android:textColor="@color/clean_text_primary" />
+            android:layout_width="wrap_content" android:layout_height="48dp" android:minWidth="0dp"
+            android:paddingHorizontal="8dp" android:text="@string/history_change_city" android:textAllCaps="false"
+            android:letterSpacing="0" android:textColor="@color/clean_text_primary" />
     </LinearLayout>
 </LinearLayout>

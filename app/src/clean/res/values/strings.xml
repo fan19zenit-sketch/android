@@ -10,7 +10,8 @@
     <string name="clean_capture_button">Сфотографировать</string>
     <string name="clean_settings_button">История</string>
 
-    <string name="history_title">Последние отправки</string>
+    <string name="history_title">История</string>
+    <string name="history_loading">Загрузка…</string>
     <string name="history_subtitle">Здесь видно последние фото, время и реальный этап отправки.</string>
     <string name="history_empty">Пока нет ни одного фото.</string>
     <string name="history_change_city">Сменить город</string>

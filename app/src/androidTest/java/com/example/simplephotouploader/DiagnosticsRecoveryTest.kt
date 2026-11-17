@@ -44,6 +44,12 @@ class DiagnosticsRecoveryTest {
         assertEquals(228, DiagnosticJournal.events(context).size)
         val report = DiagnosticJournal.export(context).readText()
         assertTrue(report.contains("photo_attention_summary"))
+        if (BuildConfig.FLAVOR == "clean") {
+            assertTrue(report.contains("cook_workflow"))
+            assertTrue(report.contains("device_and_queue"))
+            assertTrue(report.contains("workers"))
+            assertTrue(report.contains(ids.first()))
+        }
         listOf("token", "installation", "device_uuid", "photoPath", "Authorization", "private").forEach {
             assertFalse(it, report.contains(it))
         }

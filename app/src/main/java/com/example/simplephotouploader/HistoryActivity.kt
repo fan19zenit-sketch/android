@@ -1,7 +1,10 @@
 package com.example.simplephotouploader
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -10,6 +13,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -28,6 +32,8 @@ class HistoryActivity : AppCompatActivity() {
     private var renderJob: Job? = null
     private var scrollAfterFilter = false
     private var filter = HistoryOrder.Filter.ALL
+    private var sharingDiagnostics = false
+    private var downloadingUpdate = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,8 +68,10 @@ class HistoryActivity : AppCompatActivity() {
 
         backButton.setOnClickListener { finish() }
         findViewById<Button>(R.id.btnSupport).setOnClickListener {
-            startActivity(Intent(this, SupportActivity::class.java))
+            if (BuildConfig.FLAVOR == "clean") shareDiagnostics()
+            else startActivity(Intent(this, SupportActivity::class.java))
         }
+        findViewById<Button>(R.id.btnAvailableUpdate).setOnClickListener { installUpdate() }
         changeCityButton.setOnClickListener {
             startActivity(Intent(this, SetupActivity::class.java).apply {
                 putExtra(SetupActivity.EXTRA_FORCE_EDIT, true)
@@ -75,6 +83,8 @@ class HistoryActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         UploadStatusSyncWorker.enqueueBurst(this)
+        if (BuildConfig.FLAVOR == "clean") RemoteSupport.schedule(this)
+        refreshUpdateButton()
         val recycler = findViewById<RecyclerView>(R.id.recyclerHistory)
         val emptyText = findViewById<TextView>(R.id.tvEmpty)
         renderHistory(recycler, emptyText)
@@ -131,13 +141,90 @@ class HistoryActivity : AppCompatActivity() {
                 items.count { it.queuedInUploadQueue || it.status in setOf("uploaded_to_server", "sending_to_chat") },
                 attentionCount)
             findViewById<TextView>(R.id.tvHistorySubheader)?.text = summary
-            findViewById<Button>(R.id.btnHistoryAll).isEnabled = filter != HistoryOrder.Filter.ALL
-            findViewById<Button>(R.id.btnHistoryProgress).isEnabled = filter != HistoryOrder.Filter.IN_PROGRESS
             findViewById<Button>(R.id.btnHistoryAttention).apply {
                 text = getString(R.string.history_filter_attention, attentionCount)
-                isEnabled = filter != HistoryOrder.Filter.ATTENTION
+            }
+            for ((id, value) in listOf(R.id.btnHistoryAll to HistoryOrder.Filter.ALL,
+                R.id.btnHistoryProgress to HistoryOrder.Filter.IN_PROGRESS,
+                R.id.btnHistoryAttention to HistoryOrder.Filter.ATTENTION)) {
+                findViewById<Button>(id).apply {
+                    if (BuildConfig.FLAVOR == "clean") {
+                        isEnabled = true
+                        isSelected = filter == value
+                        setTextColor(android.graphics.Color.parseColor(if (isSelected) "#9B2456" else "#686866"))
+                    } else isEnabled = filter != value
+                }
+            }
+            refreshUpdateButton()
+        }
+    }
+
+    private fun shareDiagnostics() {
+        if (sharingDiagnostics) return
+        sharingDiagnostics = true
+        findViewById<Button>(R.id.btnSupport).apply {
+            isEnabled = false
+            setText(R.string.diagnostics_preparing)
+        }
+        scope.launch {
+            try {
+                val report = withContext(Dispatchers.IO) { DiagnosticJournal.export(applicationContext) }
+                startActivity(Intent.createChooser(DiagnosticShare.intent(this@HistoryActivity, report),
+                    getString(R.string.support_share)))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                Toast.makeText(this@HistoryActivity, R.string.diagnostics_share_failed, Toast.LENGTH_LONG).show()
+            } finally {
+                sharingDiagnostics = false
+                findViewById<Button>(R.id.btnSupport).apply {
+                    isEnabled = true
+                    setText(R.string.diagnostics_share)
+                }
             }
         }
+    }
+
+    private fun refreshUpdateButton() {
+        val button = findViewById<Button>(R.id.btnAvailableUpdate)
+        val update = if (BuildConfig.FLAVOR == "clean") AppUpdater.available(this) else null
+        button.visibility = if (update != null || downloadingUpdate) android.view.View.VISIBLE else android.view.View.GONE
+        button.isEnabled = update != null && !downloadingUpdate
+        button.text = if (downloadingUpdate) getString(R.string.support_downloading)
+            else update?.let { getString(R.string.support_install, it.optString("version_name")) }.orEmpty()
+    }
+
+    private fun installUpdate() {
+        val info = AppUpdater.available(this) ?: return
+        if (downloadingUpdate) return
+        AlertDialog.Builder(this).setTitle(R.string.support_update_title).setMessage(R.string.support_update_explanation)
+            .setNegativeButton(R.string.close, null).setPositiveButton(R.string.support_continue) { _, _ ->
+                if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                    runCatching { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName"))) }.onFailure { showUpdateError() }
+                    return@setPositiveButton
+                }
+                downloadingUpdate = true
+                refreshUpdateButton()
+                scope.launch {
+                    try {
+                        val apk = withContext(Dispatchers.IO) { AppUpdater.download(this@HistoryActivity, info) }
+                        startActivity(AppUpdater.installer(this@HistoryActivity, apk))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        RemoteSupport.event(applicationContext, "update_failed")
+                        showUpdateError()
+                    } finally {
+                        downloadingUpdate = false
+                        refreshUpdateButton()
+                    }
+                }
+            }.show()
+    }
+
+    private fun showUpdateError() {
+        AlertDialog.Builder(this).setMessage(R.string.support_update_failed).setPositiveButton(R.string.close, null).show()
     }
 
     private fun retryPhoto(entry: PhotoHistoryStore.Entry) {

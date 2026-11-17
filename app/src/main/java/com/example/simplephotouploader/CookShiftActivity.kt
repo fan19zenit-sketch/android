@@ -1,6 +1,8 @@
 package com.example.simplephotouploader
 
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
@@ -70,7 +72,10 @@ class CookShiftActivity : AppCompatActivity() {
     private fun label(text: String, size: Float, color: Int = Color.WHITE): TextView = TextView(this).apply {
         this.text = text
         textSize = size
-        if (size >= 20f) setTypeface(typeface, android.graphics.Typeface.BOLD)
+        if (size >= 20f) {
+            if (BuildConfig.FLAVOR == "clean") typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            else setTypeface(typeface, Typeface.BOLD)
+        }
         setTextColor(color)
         setPadding(0, dp(12), 0, dp(8))
     }
@@ -84,7 +89,17 @@ class CookShiftActivity : AppCompatActivity() {
         textSize = 16f
         minHeight = dp(52)
         setTextColor(Color.WHITE)
-        backgroundTintList = ColorStateList.valueOf(if (primary) Color.rgb(186, 56, 127) else Color.rgb(50, 50, 50))
+        if (BuildConfig.FLAVOR == "clean") {
+            background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(Color.WHITE) }
+            backgroundTintList = ColorStateList(
+                arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+                intArrayOf(Color.rgb(75, 75, 75), if (primary) Color.rgb(189, 58, 117) else Color.rgb(48, 48, 48)))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        } else {
+            backgroundTintList = ColorStateList.valueOf(if (primary) Color.rgb(186, 56, 127) else Color.rgb(50, 50, 50))
+        }
         setOnClickListener { click() }
     }
 
