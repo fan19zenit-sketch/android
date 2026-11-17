@@ -12,13 +12,16 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="12dp" android:orientation="horizontal">
         <Button android:id="@+id/btnHistoryAll" style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp"
+            android:layout_width="0dp" android:layout_weight="0.75" android:layout_height="48dp"
+            android:minWidth="0dp" android:paddingHorizontal="2dp" android:textSize="13sp"
             android:text="@string/history_filter_all" android:textAllCaps="false" android:letterSpacing="0" />
         <Button android:id="@+id/btnHistoryProgress" style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp"
+            android:layout_width="0dp" android:layout_weight="1.15" android:layout_height="48dp"
+            android:minWidth="0dp" android:paddingHorizontal="2dp" android:textSize="13sp"
             android:text="@string/history_filter_progress" android:textAllCaps="false" android:letterSpacing="0" />
         <Button android:id="@+id/btnHistoryAttention" style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="0dp" android:layout_weight="1.5" android:layout_height="48dp"
+            android:layout_width="0dp" android:layout_weight="1.6" android:layout_height="48dp"
+            android:minWidth="0dp" android:paddingHorizontal="2dp" android:textSize="13sp"
             android:textAllCaps="false" android:letterSpacing="0" />
     </LinearLayout>
     <TextView android:id="@+id/tvEmpty" android:layout_width="match_parent" android:layout_height="wrap_content"

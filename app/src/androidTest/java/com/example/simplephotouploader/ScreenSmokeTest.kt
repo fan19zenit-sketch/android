@@ -19,6 +19,7 @@ import org.junit.Assert.*
 import org.junit.runner.RunWith
 import java.io.File
 import java.time.Instant
+import java.time.ZoneId
 
 @RunWith(AndroidJUnit4::class)
 class ScreenSmokeTest {
@@ -58,6 +59,17 @@ class ScreenSmokeTest {
             instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         }
         val beforeCapture = dao.count()
+        if (BuildConfig.FLAVOR == "clean" && BuildConfig.BUILD_TYPE == "preview") {
+            val local = CookLocalSession.preferences(context)
+            local.edit().remove(CookOfflineSelectionCache.KEY).commit()
+            val binding = CookBinding("preview", 1, "Europe/Moscow")
+            val person = CookEmployee("smoke-cook", "Повар", listOf("cook"))
+            val now = Instant.now().atZone(ZoneId.of("Europe/Moscow"))
+            val shift = CookShift("smoke-shift", 1, binding.branchRef, now.toLocalDate().toString(),
+                "Europe/Moscow", now.toOffsetDateTime().toString(), listOf(person.id), emptyList(), person.id)
+            assertTrue(CookDeviceRosterCache(local).save(binding, listOf(person)))
+            assertTrue(CookLocalSession.cache(context).save(CachedCookShift(binding, shift, listOf(person))))
+        }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             onView(withId(R.id.captureButton)).check(matches(isDisplayed()))
             val deadline = SystemClock.elapsedRealtime() + 15000
@@ -88,5 +100,9 @@ class ScreenSmokeTest {
             dao.deleteByPhotoPath(it.photoPath)
         }
         listOf(0, 1, 2).forEach { dao.deleteByPhotoPath("/test/screen-$it.jpg") }
+        if (BuildConfig.FLAVOR == "clean" && BuildConfig.BUILD_TYPE == "preview") {
+            CookLocalSession.cache(context).clear()
+            CookLocalSession.preferences(context).edit().remove(CookDeviceRosterCache.KEY).commit()
+        }
     }
 }

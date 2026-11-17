@@ -43,11 +43,13 @@ class HistoryFilterDeviceTest {
                 }
                 waitCount(3)
                 onView(withId(R.id.btnHistoryAttention)).perform(click())
-                waitCount(1)
+                waitCount(if (BuildConfig.FLAVOR == "clean") 2 else 1)
                 onView(withText("Проверка фильтра: ошибка")).check(matches(isDisplayed()))
                 onView(withId(R.id.btnHistoryProgress)).perform(click())
                 waitCount(1)
-                onView(withText(R.string.history_status_queued)).check(matches(isDisplayed()))
+                if (BuildConfig.FLAVOR == "clean") onView(org.hamcrest.Matchers.allOf(withId(R.id.tvHistoryStatus),
+                    withText(R.string.history_confirmed))).check(matches(isDisplayed()))
+                else onView(withText(R.string.history_status_queued)).check(matches(isDisplayed()))
                 onView(withId(R.id.btnHistoryAll)).perform(click())
                 waitCount(3)
             }

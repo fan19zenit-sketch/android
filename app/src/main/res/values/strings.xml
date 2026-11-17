@@ -3,6 +3,9 @@
     <string name="diagnostics_share">Диагностика</string>
     <string name="diagnostics_preparing">Подготовка…</string>
     <string name="diagnostics_share_failed">Не удалось подготовить файл диагностики</string>
+    <string name="history_confirmed">Отправлено</string>
+    <string name="history_unconfirmed">Не подтверждено</string>
+    <string name="history_binary_summary">Отправлено: %1$d   ·   Не подтверждено: %2$d</string>
     <string name="history_cook_context_conflict">Сведения о поваре не подтверждены. Обратитесь в поддержку.</string>
     <string name="history_cook_context_invalid">Не удалось проверить сведения о поваре. Обратитесь в поддержку, затем повторите проверку.</string>
     <string name="history_binding_changed">Фото относится к прежнему подключению. Отправка остановлена.</string>
