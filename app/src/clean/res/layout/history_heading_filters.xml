@@ -1,0 +1,24 @@
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+    <TextView android:id="@+id/tvHistoryHeader" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="@string/history_title"
+        android:fontFamily="sans-serif-medium" android:letterSpacing="-0.02" android:textSize="30sp"
+        android:textColor="@color/clean_text_primary" />
+    <TextView android:id="@+id/tvHistorySubheader" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="@string/history_loading"
+        android:textColor="@color/clean_text_secondary" android:textSize="13sp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:orientation="horizontal">
+        <Button android:id="@+id/btnHistoryAll" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp" android:layout_weight="0.75" android:layout_height="48dp"
+            android:minWidth="0dp" android:paddingHorizontal="2dp" android:textSize="13sp"
+            android:text="@string/history_filter_all" android:textAllCaps="false" android:letterSpacing="0" />
+        <Button android:id="@+id/btnHistoryProgress" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp" android:layout_weight="1.15" android:layout_height="48dp"
+            android:minWidth="0dp" android:paddingHorizontal="2dp" android:textSize="13sp"
+            android:text="@string/history_filter_progress" android:textAllCaps="false" android:letterSpacing="0" />
+        <Button android:id="@+id/btnHistoryAttention" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp" android:layout_weight="1.6" android:layout_height="48dp"
+            android:minWidth="0dp" android:paddingHorizontal="2dp" android:textSize="13sp"
+            android:textAllCaps="false" android:letterSpacing="0" />
+    </LinearLayout>
+</merge>

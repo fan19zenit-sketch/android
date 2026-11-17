@@ -67,7 +67,10 @@ class CookShiftScreenshotTest {
             .putString(AppPrefs.KEY_DEVICE_UUID, "design-fixture").putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
         val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Europe/Moscow"))
         val binding = CookBinding("design", 1, "Europe/Moscow")
-        val people = listOf(CookEmployee("first", "Иванов Иван", listOf("cook")),
+        val args = InstrumentationRegistry.getArguments()
+        val firstName = if (args.getString("long_names") == "true")
+            "Преображенский-Рождественский Константин" else "Иванов Иван"
+        val people = listOf(CookEmployee("first", firstName, listOf("cook")),
             CookEmployee("second", "Петрова Анна", listOf("cook")))
         val shift = CookShift("design-shift", 1, "design", now.toLocalDate().toString(), "Europe/Moscow",
             now.minusMinutes(10).toOffsetDateTime().toString(), people.map { it.id }, emptyList(), "first")
@@ -86,17 +89,33 @@ class CookShiftScreenshotTest {
                     if (i == 1) "one_shot" else "main_default", time))
         }
         try {
-            fixtures.forEach(dao::insert)
+            fixtures.forEach { source.copyTo(File(it.photoPath), overwrite = true) }
             ActivityScenario.launch<SetupActivity>(Intent(context, SetupActivity::class.java).putExtra(SetupActivity.EXTRA_FORCE_EDIT,true)).use { save("10-setup") }
-            ActivityScenario.launch(MainActivity::class.java).use {
-                waitFor("Иванов Иван"); save("11-camera")
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                waitFor(firstName)
+                if (args.getString("check_landscape") == "true") scenario.onActivity {
+                    check(it.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
+                }
+                val limit = SystemClock.elapsedRealtime() + 15000
+                var ready = false
+                while (!ready && SystemClock.elapsedRealtime() < limit) {
+                    scenario.onActivity { ready = it.findViewById<android.view.View>(R.id.captureButton).isEnabled &&
+                        it.findViewById<android.widget.TextView>(R.id.statusText).text == context.getString(R.string.camera_ready) }
+                    SystemClock.sleep(100)
+                }
+                check(ready) { "The camera must be ready before recording its appearance" }; save("11-camera")
                 onView(withText("Петрова Анна")).perform(click()); save("12-one-shot")
                 onView(withText("Ещё")).perform(click()); save("13-other-authors")
             }
+            fixtures.forEach(dao::insert)
             ActivityScenario.launch(HistoryActivity::class.java).use {
                 waitFor("История"); save("14-history")
                 onView(withText("Проверить")).perform(click()); save("15-attention")
-                onView(withText("В пути")).perform(click()); save("16-queue")
+                onView(withText("В пути")).perform(click()); waitFor("В очереди"); save("16-queue")
+                val support = onView(androidx.test.espresso.matcher.ViewMatchers.withId(R.id.btnSupport))
+                if (context.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
+                    support.perform(scrollTo())
+                support.perform(click()); SystemClock.sleep(900); save("19-diagnostics")
             }
             ActivityScenario.launch<PhotoViewerActivity>(Intent(context, PhotoViewerActivity::class.java)
                 .putExtra(PhotoViewerActivity.EXTRA_PHOTO_PATH, source.absolutePath)
@@ -104,7 +123,7 @@ class CookShiftScreenshotTest {
                 .putExtra(PhotoViewerActivity.EXTRA_STATUS, "sent")).use { save("17-viewer") }
             ActivityScenario.launch(SupportActivity::class.java).use { save("18-support") }
         } finally {
-            fixtures.forEach { dao.deleteByPhotoPath(it.photoPath) }
+            fixtures.forEach { dao.deleteByPhotoPath(it.photoPath); File(it.photoPath).delete() }
             source.delete()
             CookLocalSession.cache(context).clear()
             local.edit().remove(CookDeviceRosterCache.KEY).commit()
@@ -131,6 +150,10 @@ class CookShiftScreenshotTest {
             waitFor("Выберите повара 2"); choose("Петрова Анна"); save("04-second-cook"); next()
             waitFor("Кто основной повар?"); choose("Иванов Иван"); save("05-main-cook"); next()
             waitFor("Проверьте состав"); save("06-confirm")
+        }
+        ActivityScenario.launch<CookShiftActivity>(intent).use {
+            waitFor("Начать смену"); onView(withText("Начать смену")).perform(click()); choose("1"); next()
+            waitFor("Выберите сотрудника"); choose("Иванов Иван"); save("06b-single"); next(); waitFor("Проверьте состав"); save("06c-dual-role")
         }
         prefs.edit().putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_PIZZA).commit()
         ActivityScenario.launch<CookShiftActivity>(intent).use {

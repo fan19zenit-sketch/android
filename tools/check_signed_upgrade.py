@@ -32,7 +32,8 @@ PHOTO_CONTENTS = {item: ('synthetic-photo-' + item).encode() for item in (*IDS, 
 
 
 def command(*args, check=True):
-    result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
+    result = subprocess.run(args, encoding='utf-8', errors='replace', stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, timeout=120)
     if check and result.returncode:
         raise RuntimeError(f'{args[0]} failed: {result.stdout[-1500:]}')
     return result.stdout.strip()
@@ -145,6 +146,8 @@ def main(old_apk, candidate):
         adb('shell', 'chown', f'{uid}:{uid}', APP_ROOT + '/shared_prefs')
         push_owned(prefs, PREFS, uid)
         adb('shell', 'pm', 'grant', PACKAGE, 'android.permission.CAMERA')
+        if int(adb('shell', 'getprop', 'ro.build.version.sdk')) >= 33:
+            adb('shell', 'pm', 'grant', PACKAGE, 'android.permission.POST_NOTIFICATIONS')
         adb('shell', 'am', 'start', '-n', PACKAGE + '/com.example.simplephotouploader.MainActivity')
         for _ in range(40):
             if subprocess.run(['adb', '-s', SERIAL, 'shell', 'test', '-f', DB], timeout=10).returncode == 0:
