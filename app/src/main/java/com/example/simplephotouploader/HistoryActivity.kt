@@ -41,7 +41,8 @@ class HistoryActivity : AppCompatActivity() {
         filter = savedInstanceState?.getString("history_filter")?.let {
             runCatching { HistoryOrder.Filter.valueOf(it) }.getOrNull()
         } ?: HistoryOrder.Filter.ALL
-        if (BuildConfig.FLAVOR == "clean" && filter in setOf(HistoryOrder.Filter.IN_PROGRESS, HistoryOrder.Filter.ATTENTION)) {
+        if (BuildConfig.FLAVOR == "clean" && filter in setOf(HistoryOrder.Filter.IN_PROGRESS,
+                HistoryOrder.Filter.ATTENTION, HistoryOrder.Filter.UNCONFIRMED)) {
             filter = HistoryOrder.Filter.ALL
         }
 
@@ -59,6 +60,7 @@ class HistoryActivity : AppCompatActivity() {
             }, onOpenPhoto = ::openPhoto, onRetry = ::retryPhoto)
         val progressFilter = if (BuildConfig.FLAVOR == "clean") HistoryOrder.Filter.CONFIRMED else HistoryOrder.Filter.IN_PROGRESS
         val attentionFilter = if (BuildConfig.FLAVOR == "clean") HistoryOrder.Filter.UNCONFIRMED else HistoryOrder.Filter.ATTENTION
+        if (BuildConfig.FLAVOR == "clean") findViewById<Button>(R.id.btnHistoryAttention).visibility = android.view.View.GONE
         for ((id, value) in listOf(R.id.btnHistoryAll to HistoryOrder.Filter.ALL,
             R.id.btnHistoryProgress to progressFilter, R.id.btnHistoryAttention to attentionFilter)) {
             findViewById<Button>(id).setOnClickListener {
@@ -141,14 +143,12 @@ class HistoryActivity : AppCompatActivity() {
             emptyText.visibility = if (visible.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             val attentionCount = items.count { HistoryOrder.needsAttention(it.status) }
             val confirmed = items.count { HistoryOrder.matches(HistoryOrder.Filter.CONFIRMED, it.status, it.queuedInUploadQueue, it.chatDeleted) }
-            val unconfirmed = items.count { HistoryOrder.matches(HistoryOrder.Filter.UNCONFIRMED, it.status, it.queuedInUploadQueue, it.chatDeleted) }
-            val summary = if (BuildConfig.FLAVOR == "clean") getString(R.string.history_binary_summary, confirmed, unconfirmed)
+            val summary = if (BuildConfig.FLAVOR == "clean") getString(R.string.history_confirmed_summary, confirmed)
                 else getString(R.string.history_summary, confirmed,
                     items.count { it.queuedInUploadQueue || it.status in setOf("uploaded_to_server", "sending_to_chat") }, attentionCount)
             findViewById<TextView>(R.id.tvHistorySubheader)?.text = summary
             findViewById<Button>(R.id.btnHistoryAttention).apply {
-                text = if (BuildConfig.FLAVOR == "clean") getString(R.string.history_unconfirmed)
-                    else getString(R.string.history_filter_attention, attentionCount)
+                if (BuildConfig.FLAVOR != "clean") text = getString(R.string.history_filter_attention, attentionCount)
             }
             val progressFilter = if (BuildConfig.FLAVOR == "clean") HistoryOrder.Filter.CONFIRMED else HistoryOrder.Filter.IN_PROGRESS
             val attentionFilter = if (BuildConfig.FLAVOR == "clean") HistoryOrder.Filter.UNCONFIRMED else HistoryOrder.Filter.ATTENTION

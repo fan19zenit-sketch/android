@@ -343,15 +343,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAmbiguousCook() {
         if (!isFinishing && !isDestroyed) AlertDialog.Builder(this)
-            .setMessage("У сотрудников одинаковые имена. Уточните имена в справочнике или выберите «Автор неизвестен».")
-            .setPositiveButton("Автор неизвестен") { _, _ ->
-                cookSelection.selectUnassigned("explicit_unknown")
-                refreshCookPanel()
-            }
+            .setMessage("У сотрудников одинаковые имена. Попросите управляющего уточнить их в справочнике.")
+            .setPositiveButton("Открыть смену") { _, _ -> openShift() }
             .setNegativeButton(R.string.close, null).show()
     }
 
-    private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java))
+    private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java).apply {
+        if (BuildConfig.BUILD_TYPE == "preview" && intent.getBooleanExtra("presentation_names", false)) {
+            putExtra("presentation_names", true)
+        }
+    })
 
     private fun hasCaptureSelection(): Boolean {
         val now = Instant.now()
@@ -484,7 +485,6 @@ class MainActivity : AppCompatActivity() {
         if (key == cookPanelKey) { maybePromptForShift(); return }
         cookPanelKey = key
         val nextLabel = when (source) {
-            "explicit_unknown" -> "Следующее фото: автор неизвестен"
             "shared" -> "Следующее фото: совместная работа"
             else -> snapshot?.employees?.firstOrNull { it.id == selected }?.let { "Следующее фото: ${CookEmployeeLabels.label(it, snapshot.employees)}" }
                 ?: "Смена не подтверждена"
@@ -502,17 +502,15 @@ class MainActivity : AppCompatActivity() {
             })
         }
         if (binding?.timezone != null) {
-            listOf("explicit_unknown" to "Автор неизвестен", "shared" to "Совместно").forEach { (value, title) ->
-                choices.addView(com.google.android.material.chip.Chip(this).apply {
-                    styleCookChip(this)
-                    text = title; isCheckable = true; isChecked = source == value
-                    setOnClickListener {
-                        if (snapshot != null) cookSelection.selectUnassigned(value)
-                        else unassignedSelection.select(value, binding, CookLocalSession.identity(applicationContext), Instant.now())
-                        refreshCookPanel()
-                    }
-                })
-            }
+            choices.addView(com.google.android.material.chip.Chip(this).apply {
+                styleCookChip(this)
+                text = "Совместно"; isCheckable = true; isChecked = source == "shared"
+                setOnClickListener {
+                    if (snapshot != null) cookSelection.selectUnassigned("shared")
+                    else unassignedSelection.select("shared", binding, CookLocalSession.identity(applicationContext), Instant.now())
+                    refreshCookPanel()
+                }
+            })
         }
         choices.addView(com.google.android.material.chip.Chip(this).apply { styleCookChip(this); text = "Смена"; setOnClickListener { openShift() } })
         maybePromptForShift()

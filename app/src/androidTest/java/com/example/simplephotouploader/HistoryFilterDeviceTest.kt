@@ -42,9 +42,14 @@ class HistoryFilterDeviceTest {
                     fail("Filter did not show $expected records")
                 }
                 waitCount(3)
-                onView(withId(R.id.btnHistoryAttention)).perform(click())
-                waitCount(if (BuildConfig.FLAVOR == "clean") 2 else 1)
-                onView(withText("Проверка фильтра: ошибка")).check(matches(isDisplayed()))
+                if (BuildConfig.FLAVOR == "clean") {
+                    onView(withId(R.id.btnHistoryAttention)).check(matches(withEffectiveVisibility(Visibility.GONE)))
+                    onView(withText("Проверка фильтра: ошибка")).check(matches(isDisplayed()))
+                } else {
+                    onView(withId(R.id.btnHistoryAttention)).perform(click())
+                    waitCount(1)
+                    onView(withText("Проверка фильтра: ошибка")).check(matches(isDisplayed()))
+                }
                 onView(withId(R.id.btnHistoryProgress)).perform(click())
                 waitCount(1)
                 if (BuildConfig.FLAVOR == "clean") onView(org.hamcrest.Matchers.allOf(withId(R.id.tvHistoryStatus),

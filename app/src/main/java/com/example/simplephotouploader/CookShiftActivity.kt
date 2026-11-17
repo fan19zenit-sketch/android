@@ -119,11 +119,15 @@ class CookShiftActivity : AppCompatActivity() {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     val loaded = if (preview) {
-                        val secondName = if (intent.getBooleanExtra("test_duplicate_names", false)) "Повар 1" else "Повар 2"
+                        val presentation = intent.getBooleanExtra("presentation_names", false)
+                        val firstName = if (presentation) "Иванов Иван" else "Повар 1"
+                        val secondName = if (intent.getBooleanExtra("test_duplicate_names", false)) firstName
+                            else if (presentation) "Петрова Анна" else "Повар 2"
+                        val operatorName = if (presentation) "Сидорова Мария" else "Оператор 1"
                         val firstRoles = if (intent.getBooleanExtra("test_universal", false)) listOf("cook", "operator") else listOf("cook")
-                        val fixture = listOf(CookEmployee("cook-1", "Повар 1", firstRoles),
+                        val fixture = listOf(CookEmployee("cook-1", firstName, firstRoles),
                             CookEmployee("cook-2", secondName, listOf("cook")),
-                            CookEmployee("operator-1", "Оператор 1", listOf("operator"))) +
+                            CookEmployee("operator-1", operatorName, listOf("operator"))) +
                             if (intent.getBooleanExtra("test_three_cooks", false))
                                 listOf(CookEmployee("cook-3", "Повар 3", listOf("cook"))) else emptyList()
                         LoadedRoster(CookBinding("preview", 1, "Europe/Moscow"), fixture,

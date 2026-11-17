@@ -10,6 +10,7 @@ import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isEnabled
 import androidx.test.espresso.matcher.RootMatchers.isDialog
@@ -86,6 +87,7 @@ class CookCameraFlowTest {
             onView(allOf(withText("Повар 1"), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
             onView(withText("Подтвердить смену")).perform(scrollTo(), click())
             await { visible("Повар 2") && cameraReady() }
+            onView(withText("Автор неизвестен")).check(doesNotExist())
             onView(withText("Повар 2")).perform(click())
             onView(withId(R.id.captureButton)).perform(click())
             await { dao.getAllHistory().count { it.id !in existing } >= 1 && cameraReady() }
@@ -153,17 +155,11 @@ class CookCameraFlowTest {
         ActivityScenario.launch(MainActivity::class.java).use {
             await { visible("Повар 1 · уточнить имя · основной") && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
-            await { visible("У сотрудников одинаковые имена. Уточните имена в справочнике или выберите «Автор неизвестен».") }
+            await { visible("У сотрудников одинаковые имена. Попросите управляющего уточнить их в справочнике.") }
             SystemClock.sleep(500)
             assertEquals(0, dao.getAllHistory().count { it.id !in existing })
-            onView(withText("Автор неизвестен")).inRoot(isDialog()).perform(click())
-            onView(withId(R.id.captureButton)).perform(click())
-            await { dao.getAllHistory().count { it.id !in existing } == 1 }
-            val photo = dao.getAllHistory().single { it.id !in existing }
-            val metadata = JSONObject(photo.photoContext!!)
-            assertEquals("explicit_unknown", metadata.getString("selectionSource"))
-            assertTrue(metadata.isNull("cookRef"))
-            assertTrue(metadata.isNull("cookNameSnapshot"))
+            onView(withText("Закрыть")).inRoot(isDialog()).perform(click())
+            assertEquals(0, dao.getAllHistory().count { it.id !in existing })
         }
     }
 }

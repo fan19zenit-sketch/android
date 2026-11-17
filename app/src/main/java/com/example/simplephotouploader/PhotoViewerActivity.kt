@@ -42,11 +42,7 @@ class PhotoViewerActivity : AppCompatActivity() {
     }
 
     private fun mapStatus(status: String, deleted: Boolean): String {
-        if (BuildConfig.FLAVOR == "clean") return when {
-            deleted -> getString(R.string.history_status_deleted)
-            status == "sent" -> getString(R.string.history_confirmed)
-            else -> getString(R.string.history_unconfirmed)
-        }
+        if (BuildConfig.FLAVOR == "clean") return getString(HistoryDisplay.status(status, deleted))
         return when (status) {
             "sent" -> getString(R.string.history_status_sent)
             "queued" -> getString(R.string.history_status_queued)

@@ -72,13 +72,13 @@ class HistoryAdapter(
                 subtitle.text = "${subtitle.text}\n${itemView.context.getString(R.string.history_cook_context_invalid)}"
             }
 
-            status.text = if (BuildConfig.FLAVOR == "clean" && !item.chatDeleted && item.status != "sent") {
-                itemView.context.getString(R.string.history_unconfirmed)
+            status.text = if (BuildConfig.FLAVOR == "clean") {
+                itemView.context.getString(HistoryDisplay.status(item.status, item.chatDeleted))
             } else when (item.status) {
                 "sent" -> if (item.chatDeleted) {
                     itemView.context.getString(R.string.history_status_deleted)
                 } else {
-                    itemView.context.getString(if (BuildConfig.FLAVOR == "clean") R.string.history_confirmed else R.string.history_status_sent)
+                    itemView.context.getString(R.string.history_status_sent)
                 }
                 "queued" -> itemView.context.getString(R.string.history_status_queued)
                 "sending" -> itemView.context.getString(R.string.history_status_sending)

@@ -12,8 +12,8 @@
 
     <string name="history_title">История</string>
     <string name="history_loading">Загрузка…</string>
-    <string name="camera_issues">Не подтверждено: %1$d</string>
-    <string name="history_older_photo">Фото за прошлый день не подтверждено</string>
+    <string name="camera_issues">Есть ошибки: %1$d</string>
+    <string name="history_older_photo">Фото за прошлый день не отправлено автоматически</string>
     <string name="history_file_missing">Файл отсутствует на телефоне</string>
     <string name="history_subtitle">Здесь видно последние фото, время и реальный этап отправки.</string>
     <string name="history_empty">Пока нет ни одного фото.</string>
