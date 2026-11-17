@@ -21,7 +21,7 @@ data class CookRoster(val branchRef: String, val employees: List<CookEmployee>)
 data class CookBinding(val branchRef: String, val revision: Int, val timezone: String? = null)
 data class CookBranchShiftTemplate(val branchRef: String, val operationalDate: String, val timezone: String,
                                    val revision: Int, val staffCount: Int, val operators: List<String>,
-                                   val cooks: List<String>, val assistants: List<String>)
+                                   val cooks: List<String>, val assistants: List<String>, val confirmedAt: String? = null)
 data class CookShift(val id: String, val revision: Int, val branchRef: String, val operationalDate: String,
                      val timezone: String, val confirmedAt: String, val cooks: List<String>,
                      val operators: List<String>, val mainCookId: String, val assistants: List<String> = emptyList())
@@ -102,7 +102,10 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
             require(listOf(operators, cooks, assistants).all { it.size == it.toSet().size && it.all(String::isNotBlank) })
             require((operators + cooks + assistants).toSet().size == staffCount)
             if (staffCount == 1) require(operators == cooks && assistants.isEmpty())
-            return CookBranchShiftTemplate(binding.branchRef, day, timezone, revision, staffCount, operators, cooks, assistants)
+            val confirmedAt = item.optString("confirmedAt").takeIf { it.isNotBlank() && it != "null" }
+            if (confirmedAt != null) require(java.time.OffsetDateTime.parse(confirmedAt).atZoneSameInstant(
+                java.time.ZoneId.of(timezone)).toLocalDate().toString() == day)
+            return CookBranchShiftTemplate(binding.branchRef, day, timezone, revision, staffCount, operators, cooks, assistants, confirmedAt)
         } catch (error: Exception) {
             if (error is CookApiProtocolException) throw error
             throw CookApiProtocolException("Некорректная смена филиала", error)

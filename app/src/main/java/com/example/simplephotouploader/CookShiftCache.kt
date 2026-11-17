@@ -11,7 +11,12 @@ data class CachedCookShift(val binding: CookBinding, val shift: CookShift, val e
 
 /** Only confirmed shifts are cached; a one-shot choice never survives process death. */
 class CookShiftCache(private val preferences: SharedPreferences) {
-    fun save(snapshot: CachedCookShift): Boolean {
+    fun save(snapshot: CachedCookShift): Boolean = save(snapshot, carryAuthor = false, author = null)
+
+    fun saveRefreshed(snapshot: CachedCookShift, persistentAuthor: String?): Boolean =
+        save(snapshot, carryAuthor = true, author = persistentAuthor)
+
+    private fun save(snapshot: CachedCookShift, carryAuthor: Boolean, author: String?): Boolean {
         require(snapshot.offlineShift == null && snapshot.offlineScope == null)
         validate(snapshot)
         val shift = snapshot.shift
@@ -25,7 +30,12 @@ class CookShiftCache(private val preferences: SharedPreferences) {
             .put("confirmedAt", shift.confirmedAt).put("cooks", JSONArray(shift.cooks))
             .put("operators", JSONArray(shift.operators)).put("assistants", JSONArray(shift.assistants))
             .put("mainCook", shift.mainCookId).put("employees", employees)
-        return preferences.edit().putString(KEY, data.toString()).commit()
+        return preferences.edit().putString(KEY, data.toString()).remove(REVIEW_KEY).apply {
+            if (carryAuthor) {
+                if (author == null) remove(AUTHOR_KEY)
+                else putString(AUTHOR_KEY, encodeAuthor(shift, author))
+            }
+        }.commit()
     }
 
     fun load(): CachedCookShift? {
@@ -50,7 +60,14 @@ class CookShiftCache(private val preferences: SharedPreferences) {
         }
     }
 
-    fun clear(): Boolean = preferences.edit().remove(KEY).commit()
+    fun clear(): Boolean = preferences.edit().remove(KEY).remove(REVIEW_KEY).commit()
+
+    fun requiresAuthorReview(shift: CookShift): Boolean =
+        preferences.getString(REVIEW_KEY, null) == "${shift.id}:${shift.revision}"
+
+    fun requireAuthorReview(shift: CookShift) {
+        if (!requiresAuthorReview(shift)) preferences.edit().putString(REVIEW_KEY, "${shift.id}:${shift.revision}").apply()
+    }
 
     private fun validate(snapshot: CachedCookShift) {
         val binding = snapshot.binding
@@ -75,5 +92,11 @@ class CookShiftCache(private val preferences: SharedPreferences) {
 
     private fun strings(array: JSONArray): List<String> = (0 until array.length()).map { array.getString(it) }
 
-    companion object { internal const val KEY = "confirmed_shift_v1" }
+    companion object {
+        internal const val KEY = "confirmed_shift_v1"
+        internal const val AUTHOR_KEY = "current_photo_author"
+        private const val REVIEW_KEY = "bot_roster_author_review"
+        internal fun encodeAuthor(shift: CookShift, id: String): String = JSONObject()
+            .put("shift", shift.id).put("revision", shift.revision).put("employee", id).toString()
+    }
 }

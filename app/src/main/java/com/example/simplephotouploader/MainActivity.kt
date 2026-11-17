@@ -50,6 +50,9 @@ class MainActivity : AppCompatActivity() {
     private var currentBindingScope: String? = null
     private var lastShiftPrompt = ""
     private var cookRefreshJob: Job? = null
+    private var botRosterJob: Job? = null
+    private var botRosterScope: Pair<String, CookBinding>? = null
+    private var botRosterCapabilityChecked = false
     private var cookPanelKey = ""
     private val shiftForm = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == RESULT_OK) refreshCookWorkflow()
@@ -111,7 +114,20 @@ class MainActivity : AppCompatActivity() {
         CookShiftPresenceWorker.enqueueNow(applicationContext)
         RemoteSupport.checkImmediately(applicationContext)
         UploadCoordinator.kick(applicationContext)
-        if (BuildConfig.FLAVOR == "clean") refreshCookWorkflow()
+        if (BuildConfig.FLAVOR == "clean") {
+            refreshCookWorkflow()
+            if (BuildConfig.BUILD_TYPE != "preview" && !isPizzaPhone()) botRosterJob = scope.launch {
+                cookRefreshJob?.join()
+                while (isActive) {
+                    refreshCameraRoster()
+                    delay(15_000)
+                    if (!botRosterCapabilityChecked && usableShift(scopedBinding(), Instant.now()) != null) {
+                        refreshCookWorkflow()
+                        cookRefreshJob?.join()
+                    }
+                }
+            }
+        }
         refreshJob = scope.launch {
             while (isActive) {
                 val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@MainActivity) }
@@ -150,6 +166,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         refreshJob?.cancel()
+        botRosterJob?.cancel()
+        cookRefreshJob?.cancel()
+        botRosterScope = null
+        botRosterCapabilityChecked = false
         super.onPause()
     }
 
@@ -200,6 +220,11 @@ class MainActivity : AppCompatActivity() {
         }
         val captureId = captures.begin() ?: return
         val instant = Instant.now()
+        if (needsRosterReview()) {
+            captures.finish(captureId)
+            openShift()
+            return
+        }
         val capturedAt = instant.toString()
         var reservation: CookCaptureSelection.Reservation? = null
         var photoContext: String? = null
@@ -362,6 +387,7 @@ class MainActivity : AppCompatActivity() {
     })
 
     private fun hasCaptureSelection(): Boolean {
+        if (needsRosterReview()) return false
         val now = Instant.now()
         val binding = scopedBinding()
         return usableShift(binding, now) != null || (!isPizzaPhone() &&
@@ -372,15 +398,15 @@ class MainActivity : AppCompatActivity() {
         getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN) == AppPrefs.DEVICE_MODE_PIZZA
 
     private fun savedCurrentAuthor(snapshot: CachedCookShift, allowed: Set<String>): String? = try {
-        val saved = JSONObject(CookLocalSession.preferences(applicationContext).getString("current_photo_author", null) ?: return null)
+        val saved = JSONObject(CookLocalSession.preferences(applicationContext).getString(CookShiftCache.AUTHOR_KEY, null) ?: return null)
         saved.optString("employee").takeIf { it in allowed && saved.optString("shift") == snapshot.shift.id &&
             saved.optInt("revision") == snapshot.shift.revision }
     } catch (_: Exception) { null }
 
     private fun selectCurrentAuthor(snapshot: CachedCookShift, employeeId: String) {
-        val value = JSONObject().put("shift", snapshot.shift.id).put("revision", snapshot.shift.revision)
-            .put("employee", employeeId).toString()
-        if (!CookLocalSession.preferences(applicationContext).edit().putString("current_photo_author", value).commit()) {
+        if (usableShift(scopedBinding(), Instant.now()) != snapshot || needsRosterReview()) return
+        val value = CookShiftCache.encodeAuthor(snapshot.shift, employeeId)
+        if (!CookLocalSession.preferences(applicationContext).edit().putString(CookShiftCache.AUTHOR_KEY, value).commit()) {
             android.widget.Toast.makeText(this, "Не удалось сохранить выбор", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
@@ -395,6 +421,67 @@ class MainActivity : AppCompatActivity() {
         val candidate = selectedShift ?: return null
         if (!CookScopeGuard.matches(selectedShiftScope, CookLocalSession.identity(applicationContext))) return null
         return candidate.takeIf { CookShiftPolicy.usable(it.shift, binding, it.binding, now) }
+    }
+
+    private fun needsRosterReview(): Boolean {
+        val shift = usableShift(scopedBinding(), Instant.now())?.shift ?: return false
+        return CookShiftCache(CookLocalSession.preferences(applicationContext)).requiresAuthorReview(shift)
+    }
+
+    private suspend fun refreshCameraRoster() {
+        val identity = CookLocalSession.identity(applicationContext)
+        val binding = scopedBinding() ?: return
+        val previous = usableShift(binding, Instant.now()) ?: return
+        if (botRosterScope != (identity to binding) || previous.offlineShift != null || captures.busy) return
+        val local = CookLocalSession.preferences(applicationContext)
+        val cache = CookShiftCache(local)
+        fun stillCurrent(): Boolean = !captures.busy && botRosterScope == (identity to binding) &&
+            scopedBinding() == binding && usableShift(binding, Instant.now()) == previous &&
+            !local.contains(CookOfflineSelectionCache.KEY) && CookPendingShiftStore(local).load() == null &&
+            cache.load() == previous
+        try {
+            if (!stillCurrent()) return
+            val device = CookLocalSession.offlineScope(applicationContext, binding)
+            val client = CookWorkflowClient(device.backendUrl)
+            val (template, employees) = withContext(Dispatchers.IO) {
+                val dao = CookOfflineDatabase.get(applicationContext).queue()
+                if (dao.pendingShifts(device.backendUrl, device.deviceUuid, binding.branchRef, binding.revision).isNotEmpty())
+                    return@withContext null
+                val template = client.branchShift(device.deviceUuid, previous.shift.operationalDate, binding) ?: return@withContext null
+                if (!CookCameraRosterRefresh.newer(template, previous.shift, Instant.now()) ||
+                    client.initializeBinding(device.deviceUuid) != binding) return@withContext null
+                val roster = client.roster(device.deviceUuid)?.takeIf { it.branchRef == binding.branchRef } ?: return@withContext null
+                template to roster.employees
+            } ?: return
+            if (!stillCurrent()) return
+            val participants = (template.cooks + template.operators + template.assistants).toSet()
+            val known = employees.associateBy { it.id }
+            if (participants.any { id -> known[id]?.let { CookEmployeeLabels.ambiguous(it, employees) } != false }) return
+            val roster = (template.cooks + if (operatorPhotoAuthorEnabled) template.operators else emptyList()).toSet()
+            val main = previous.shift.mainCookId
+            fun authorStillValid(): Boolean = main in template.cooks && cookSelection.canRefreshRoster(roster, main)
+            if (!authorStillValid()) {
+                cache.requireAuthorReview(previous.shift)
+                refreshCookPanel()
+                return
+            }
+            val updated = CookCameraRosterRefresh.withTemplate(previous.shift, template)
+            val saved = withContext(Dispatchers.IO) {
+                client.confirmShift(device.deviceUuid, CookCameraRosterRefresh.requestId(updated, template), updated, binding)
+            } ?: return
+            if (saved.first != updated.id || saved.second <= previous.shift.revision || !stillCurrent()) return
+            if (!authorStillValid()) {
+                cache.requireAuthorReview(previous.shift)
+                refreshCookPanel()
+                return
+            }
+            val snapshot = CachedCookShift(binding, updated.copy(revision = saved.second), employees)
+            if (!cache.saveRefreshed(snapshot, cookSelection.persistentAuthor())) return
+            selectedShift = snapshot
+            cookSelection.refreshRoster(roster, main)
+            refreshCookPanel()
+        } catch (error: CancellationException) { throw error }
+        catch (_: Exception) { /* Retry on the next foreground refresh; keep the last confirmed roster. */ }
     }
 
     private fun styleCookChip(chip: com.google.android.material.chip.Chip) {
@@ -459,6 +546,7 @@ class MainActivity : AppCompatActivity() {
             }
             applyLocalState()
             if (!preview) {
+                var unsupported = false
                 val verified = withContext(Dispatchers.IO) {
                     try {
                         val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
@@ -468,6 +556,7 @@ class MainActivity : AppCompatActivity() {
                             val client = CookWorkflowClient(backend)
                             val capabilities = client.capabilities(device)
                             if (capabilities?.supportsAttributedCapture != true) {
+                                unsupported = true
                                 local.edit().remove("operator_photo_author_binding").commit()
                                 null
                             } else {
@@ -485,7 +574,7 @@ class MainActivity : AppCompatActivity() {
                                                 operatorAuthorBindingKey(binding))
                                             else remove("operator_photo_author_binding")
                                         }.commit()
-                                        binding
+                                        binding to capabilities.branchShiftTemplate
                                     }
                                 }
                             }
@@ -493,7 +582,9 @@ class MainActivity : AppCompatActivity() {
                     } catch (error: CancellationException) { throw error }
                     catch (_: Exception) { null }
                 }
-                if (verified != null) applyLocalState(verified) else applyLocalState()
+                botRosterCapabilityChecked = verified != null || unsupported
+                botRosterScope = verified?.takeIf { it.second && !isPizzaPhone() }?.let { expectedScope to it.first }
+                if (verified != null) applyLocalState(verified.first) else applyLocalState()
             }
         }
     }
@@ -529,9 +620,19 @@ class MainActivity : AppCompatActivity() {
         val selected = cookSelection.current()
         val source = if (snapshot != null) cookSelection.currentSource() else
             unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), Instant.now())?.choice
-        val key = "$snapshot|$selected|$source|$binding|$operatorPhotoAuthorEnabled|${isPizzaPhone()}"
+        val review = needsRosterReview()
+        val key = "$snapshot|$selected|$source|$binding|$operatorPhotoAuthorEnabled|${isPizzaPhone()}|$review"
         if (key == cookPanelKey) { maybePromptForShift(); return }
         cookPanelKey = key
+        if (review) {
+            next.text = "Состав изменился"
+            choices.removeAllViews()
+            choices.addView(com.google.android.material.chip.Chip(this).apply {
+                styleCookChip(this); text = "Выбрать автора"; setOnClickListener { openShift() }
+            })
+            findViewById<TextView>(R.id.cookChange)?.visibility = View.GONE
+            return
+        }
         val nextLabel = when (source) {
             "shared" -> "Следующее фото: совместная работа"
             else -> snapshot?.employees?.firstOrNull { it.id == selected }?.let { "Следующее фото: ${CookEmployeeLabels.label(it, snapshot.employees)}" }

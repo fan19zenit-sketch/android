@@ -29,6 +29,25 @@ class CookCaptureSelectionTest {
         assertEquals("d", state.reserve()!!.cookId)
     }
 
+    @Test fun cameraRosterRefreshWaitsForCaptureAndPreservesCurrentChoices() {
+        val state = CookCaptureSelection()
+        state.setRoster(setOf("main", "persistent", "once"), "main")
+        state.selectPersistent("persistent")
+        state.selectOneShot("once")
+        val reservation = state.reserve()!!
+        val updated = setOf("main", "persistent", "once", "new")
+        assertFalse(state.canRefreshRoster(updated, "main"))
+        assertEquals("once", reservation.cookId)
+        state.finish(reservation, persisted = false)
+        assertFalse(state.canRefreshRoster(updated - "once", "main"))
+        assertFalse(state.canRefreshRoster(updated - "persistent", "main"))
+        state.refreshRoster(updated, "main")
+        val retry = state.reserve()!!
+        assertEquals("once", retry.cookId)
+        state.finish(retry, persisted = true)
+        assertEquals("persistent", state.reserve()!!.cookId)
+    }
+
     @Test fun pizzaCookRemainsSelectedAcrossPhotosAndDoesNotRelabelAnInFlightCapture() {
         val state = CookCaptureSelection()
         state.setRoster(setOf("first", "second"), "first")

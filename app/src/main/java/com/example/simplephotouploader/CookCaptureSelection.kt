@@ -21,6 +21,18 @@ class CookCaptureSelection {
     @Synchronized fun current(): String? = if (special != null) null else oneShot ?: persistentCook ?: mainCook
     @Synchronized fun currentSource(): String = special ?: if ((oneShot ?: persistentCook ?: mainCook) == mainCook) "main_default" else "one_shot"
 
+    @Synchronized fun persistentAuthor(): String? = persistentCook
+
+    @Synchronized fun canRefreshRoster(cookIds: Set<String>, mainCookId: String): Boolean =
+        activeCapture == null && mainCook == mainCookId && mainCookId in cookIds &&
+            listOfNotNull(oneShot, persistentCook).all { it in cookIds }
+
+    @Synchronized fun refreshRoster(cookIds: Set<String>, mainCookId: String) {
+        check(canRefreshRoster(cookIds, mainCookId))
+        cooks = cookIds.toSet()
+        revision++
+    }
+
     @Synchronized fun setRoster(cookIds: Set<String>, mainCookId: String) {
         require(mainCookId.isNotBlank() && mainCookId in cookIds)
         require(cookIds.none { it.isBlank() })
