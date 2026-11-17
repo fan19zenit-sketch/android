@@ -1,0 +1,36 @@
+name: Signed 3.3.4 upgrade check
+on:
+  push:
+    branches:
+      - codex/verify-signed-upgrade-334-20261117
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download exact signed candidates from the private draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p upgrade-input
+          gh release download android-upgrade-test-fixtures-20261110 --repo "$GITHUB_REPOSITORY" --pattern photo-v-chistotu-3.3.3-9221d37.apk --pattern photo-v-chistotu-3.3.4-0d93434.apk --dir upgrade-input
+          echo '7578a1fb4897769d732a2fd3033df6224df3dd7a28de0f17c64b444b4b6c537d  upgrade-input/photo-v-chistotu-3.3.3-9221d37.apk' | sha256sum -c -
+          echo '5bb75fefebe4e249e6d225c9a761f6c25507a3dc87bc82b712fb09d10d864d5a  upgrade-input/photo-v-chistotu-3.3.4-0d93434.apk' | sha256sum -c -
+      - name: Enable emulator acceleration on the disposable runner
+        run: sudo chmod a+rw /dev/kvm
+      - uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
+          script: python3 tools/check_signed_upgrade.py upgrade-input/photo-v-chistotu-3.3.3-9221d37.apk upgrade-input/photo-v-chistotu-3.3.4-0d93434.apk
