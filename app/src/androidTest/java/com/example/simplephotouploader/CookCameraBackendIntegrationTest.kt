@@ -105,6 +105,34 @@ class CookCameraBackendIntegrationTest {
                     assertEquals(1, server.getInt("queued"))
                     assertEquals(second.id, server.getJSONObject("photoContext").getJSONObject("cookRef").getString("id"))
                 }
+                val retry = Request.Builder().url("$base/cook-v2/upload")
+                    .post(PhotoUploadMultipart.build(device, row.id, file, row.photoContext)).build()
+                PhotoApi.execute(retry).use { response ->
+                    assertEquals(202, response.code)
+                    assertEquals(row.jobId, JSONObject(requireNotNull(response.body).string())
+                        .getJSONObject("job").getString("job_id"))
+                }
+                PhotoApi.execute(Request.Builder().url("$base/fixture/upload/${row.id}").build()).use { response ->
+                    assertEquals(200, response.code)
+                    assertEquals(1, JSONObject(requireNotNull(response.body).string()).getInt("queued"))
+                }
+                repeat(2) {
+                    val qc = Request.Builder().url("$base/fixture/fake-qc/${row.id}")
+                        .post(ByteArray(0).toRequestBody()).build()
+                    PhotoApi.execute(qc).use { response ->
+                        assertEquals(200, response.code)
+                        val result = JSONObject(requireNotNull(response.body).string())
+                        assertTrue(result.getBoolean("fakeTransport"))
+                        assertEquals(1, result.getInt("photoCount"))
+                        assertEquals(1, result.getInt("operatorCardCount"))
+                        assertTrue(result.getBoolean("operatorRouteCorrect"))
+                        assertTrue(result.getBoolean("operatorButtonWorks"))
+                        assertEquals(second.id, result.getString("cookId"))
+                        assertTrue(result.getBoolean("captionHasReason"))
+                        assertTrue(result.getBoolean("cardHasLesson"))
+                        assertTrue(result.getBoolean("reportHasPhotoAndLesson"))
+                    }
+                }
             }
         } finally {
             work.cancelAllWork().result.get()
