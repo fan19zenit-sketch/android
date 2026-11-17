@@ -10,12 +10,19 @@ class CookShiftWizardTest {
 
     @Test fun singleEmployeeIsBothOperatorAndMainCook() {
         val draft = CookShiftWizard(1)
-        draft.selectSingle("one")
-        assertEquals(listOf("one"), draft.selected(operator))
-        assertEquals(listOf("one"), draft.selected(cook))
+        // The timesheet's default role must not prevent a cook from working alone.
+        draft.selectSingle("timesheet-cook-only")
+        assertEquals(listOf("timesheet-cook-only"), draft.selected(operator))
+        assertEquals(listOf("timesheet-cook-only"), draft.selected(cook))
         assertEquals(emptyList<String>(), draft.selected(assistant))
-        assertEquals("one", draft.mainCook)
+        assertEquals("timesheet-cook-only", draft.mainCook)
         assertTrue(draft.isComplete())
+        draft.selectSingle("replacement")
+        assertEquals(listOf("replacement"), draft.selected(operator))
+        assertEquals(listOf("replacement"), draft.selected(cook))
+        assertEquals("replacement", draft.mainCook)
+        assertTrue(draft.isComplete())
+        assertThrows(IllegalArgumentException::class.java) { CookShiftWizard(2).selectSingle("one") }
     }
 
     @Test fun multipleRolesCanOverlapButNotDuplicateWithinRole() {
