@@ -95,9 +95,16 @@ object DiagnosticJournal {
     fun export(context: Context): File {
         val directory = File(context.cacheDir, "diagnostics").apply { mkdirs() }
         return File(directory, "connection-report.json").apply {
+            val issueSummary = runCatching {
+                val records = PilotDatabase.get(context).photoRecordDao().getAttentionRecords()
+                val facts = records.map { IssueSummary.Fact(it.status, !it.jobId.isNullOrBlank(),
+                    File(it.photoPath).exists(), it.capturedAt) }
+                JSONObject(IssueSummary.summarize(facts))
+            }.getOrElse { JSONObject().put("unavailable", true) }
             writeText(JSONObject().put("schema", 2).put("version", BuildConfig.VERSION_NAME)
                 .put("sdk", Build.VERSION.SDK_INT).put("model", Build.MODEL.take(100))
-                .put("network", network(context)).put("events", JSONArray(events(context))).toString(2))
+                .put("network", network(context)).put("events", JSONArray(events(context)))
+                .put("photo_attention_summary", issueSummary).toString(2))
         }
     }
 }

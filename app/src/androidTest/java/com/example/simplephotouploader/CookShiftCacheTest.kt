@@ -46,6 +46,22 @@ class CookShiftCacheTest {
         assertNull(cache.load())
     }
 
+    @Test fun shiftWithoutOperatorsPersistsAndCanBeRestored() {
+        val withoutOperators = snapshot.copy(shift = shift.copy(operators = emptyList()), employees = listOf(cook))
+        assertTrue(cache.save(withoutOperators))
+        assertEquals(withoutOperators, CookShiftCache(prefs).load())
+    }
+
+    @Test fun selectedShiftRolesCanDifferFromRosterWithoutChangingRoster() {
+        val operatorNormally = cook.copy(roles = listOf("operator"))
+        val cookNormally = operator.copy(roles = listOf("cook"))
+        val changedRoles = snapshot.copy(employees = listOf(operatorNormally, cookNormally))
+        assertTrue(cache.save(changedRoles))
+        assertEquals(changedRoles, CookShiftCache(prefs).load())
+        assertEquals(listOf("operator"), operatorNormally.roles)
+        assertEquals(listOf("cook"), cookNormally.roles)
+    }
+
     @Test fun deviceBindingAndRosterSurviveWithoutAnyConfirmedShift() {
         val device = CookDeviceRosterCache(prefs)
         val verified = CookBinding("branch", 1, "Europe/Moscow")

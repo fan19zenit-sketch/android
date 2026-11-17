@@ -25,10 +25,16 @@ class HistoryActivity : AppCompatActivity() {
     private var lastItems: List<PhotoHistoryStore.Entry> = emptyList()
     private val deleting = mutableSetOf<String>()
     private var autoRefreshJob: Job? = null
+    private var renderJob: Job? = null
+    private var scrollAfterFilter = false
+    private var filter = HistoryOrder.Filter.ALL
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_history)
+        filter = savedInstanceState?.getString("history_filter")?.let {
+            runCatching { HistoryOrder.Filter.valueOf(it) }.getOrNull()
+        } ?: HistoryOrder.Filter.ALL
 
         val backButton = findViewById<Button>(R.id.btnBack)
         val changeCityButton = findViewById<Button>(R.id.btnChangeCity)
@@ -42,6 +48,15 @@ class HistoryActivity : AppCompatActivity() {
                     .setNegativeButton(R.string.close, null)
                     .setPositiveButton(R.string.history_delete_chat) { _, _ -> deleteFromChat(entry, recycler, emptyText) }.show()
             }, onOpenPhoto = ::openPhoto, onRetry = ::retryPhoto)
+        for ((id, value) in listOf(R.id.btnHistoryAll to HistoryOrder.Filter.ALL,
+            R.id.btnHistoryProgress to HistoryOrder.Filter.IN_PROGRESS,
+            R.id.btnHistoryAttention to HistoryOrder.Filter.ATTENTION)) {
+            findViewById<Button>(id).setOnClickListener {
+                filter = value
+                scrollAfterFilter = true
+                renderHistory(recycler, emptyText)
+            }
+        }
         findViewById<TextView>(R.id.versionText)?.text = getString(R.string.app_version, BuildConfig.VERSION_NAME)
         renderHistory(recycler, emptyText)
 
@@ -78,23 +93,50 @@ class HistoryActivity : AppCompatActivity() {
         super.onPause()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("history_filter", filter.name)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
     }
 
     private fun renderHistory(recycler: RecyclerView, emptyText: TextView) {
-        scope.launch {
+        // A slow query can outlast the refresh interval. Let it finish rather than
+        // repeatedly cancelling it; the latest selected filter is applied below.
+        if (renderJob?.isActive == true) return
+        renderJob = scope.launch {
             val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@HistoryActivity) }
-            if (items != lastItems) {
-                lastItems = items
-                (recycler.adapter as HistoryAdapter).submitList(items)
+            val visible = items.filter { HistoryOrder.matches(filter, it.status, it.queuedInUploadQueue) }
+            if (visible != lastItems) {
+                lastItems = visible
+                val renderedFilter = filter
+                (recycler.adapter as HistoryAdapter).submitList(visible) {
+                    if (scrollAfterFilter && renderedFilter == filter) {
+                        recycler.scrollToPosition(0)
+                        scrollAfterFilter = false
+                    }
+                }
+            } else if (scrollAfterFilter) {
+                recycler.scrollToPosition(0)
+                scrollAfterFilter = false
             }
-            emptyText.visibility = if (items.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
-            findViewById<TextView>(R.id.tvHistorySubheader)?.text = getString(R.string.history_summary,
+            emptyText.setText(if (filter == HistoryOrder.Filter.ALL) R.string.history_empty else R.string.history_filter_empty)
+            emptyText.visibility = if (visible.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+            val attentionCount = items.count { HistoryOrder.needsAttention(it.status) }
+            val summary = getString(R.string.history_summary,
                 items.count { it.status == "sent" && !it.chatDeleted },
                 items.count { it.queuedInUploadQueue || it.status in setOf("uploaded_to_server", "sending_to_chat") },
-                items.count { it.status in setOf("error", "needs_review", "delivery_unknown") })
+                attentionCount)
+            findViewById<TextView>(R.id.tvHistorySubheader)?.text = summary
+            findViewById<Button>(R.id.btnHistoryAll).isEnabled = filter != HistoryOrder.Filter.ALL
+            findViewById<Button>(R.id.btnHistoryProgress).isEnabled = filter != HistoryOrder.Filter.IN_PROGRESS
+            findViewById<Button>(R.id.btnHistoryAttention).apply {
+                text = getString(R.string.history_filter_attention, attentionCount)
+                isEnabled = filter != HistoryOrder.Filter.ATTENTION
+            }
         }
     }
 

@@ -18,7 +18,7 @@ object CookShiftPolicy {
             val zone = ZoneId.of(shift.timezone)
             val confirmed = OffsetDateTime.parse(shift.confirmedAt).toInstant()
             LocalDate.parse(shift.operationalDate) == now.atZone(zone).toLocalDate() &&
-                confirmed <= now && shift.cooks.isNotEmpty() && shift.operators.isNotEmpty() &&
+                confirmed <= now && shift.cooks.isNotEmpty() &&
                 shift.mainCookId in shift.cooks
         } catch (_: Exception) {
             false

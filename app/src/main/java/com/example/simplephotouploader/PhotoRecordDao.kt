@@ -17,6 +17,9 @@ interface PhotoRecordDao {
     @Query("SELECT COUNT(*) FROM photo_records WHERE status IN ('error', 'needs_review', 'delivery_unknown')")
     fun issueCount(): Int
 
+    @Query("SELECT * FROM photo_records WHERE status IN ('error', 'needs_review', 'delivery_unknown')")
+    fun getAttentionRecords(): List<PhotoRecordEntity>
+
     @Query("SELECT MIN(capturedAt) FROM photo_records WHERE queuedInUploadQueue = 1")
     fun oldestQueuedAt(): String?
 

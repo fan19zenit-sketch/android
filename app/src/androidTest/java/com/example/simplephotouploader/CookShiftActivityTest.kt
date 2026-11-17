@@ -17,6 +17,8 @@ import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.espresso.matcher.ViewMatchers.withHint
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.withTagValue
+import androidx.test.espresso.matcher.ViewMatchers.isChecked
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
@@ -28,6 +30,8 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.`is`
+import org.hamcrest.Matchers.not
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
@@ -36,6 +40,17 @@ import org.json.JSONObject
 @RunWith(AndroidJUnit4::class)
 class CookShiftActivityTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
+
+    private fun role(employeeId: String, role: String) {
+        onView(withTagValue(`is`("role:$employeeId:$role" as Any))).perform(scrollTo(), click())
+    }
+
+    private fun pendingEmployeeId(binding: CookBinding, name: String): String {
+        val scope = CookLocalSession.offlineScope(context, binding)
+        return CookOfflineDatabase.get(context).queue()
+            .pendingEmployees(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision)
+            .single { it.name == name }.provisionalId
+    }
 
     @Before fun reset() {
         CookLocalSession.cache(context).clear()
@@ -140,6 +155,11 @@ class CookShiftActivityTest {
             onView(withText("Повар 1")).perform(click())
             onView(withText("Повар 2")).perform(click())
             onView(withText("Оператор 1")).perform(scrollTo(), click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            role("cook-1", "cook")
+            role("cook-2", "cook")
+            role("operator-1", "operator")
+            onView(allOf(withText("Повар 1"), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
             onView(withText("Подтвердить смену")).perform(scrollTo(), click())
             while (CookLocalSession.cache(context).load() == null && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
             val shift = CookLocalSession.cache(context).load()
@@ -150,6 +170,63 @@ class CookShiftActivityTest {
         }
     }
 
+    @Test fun twoCooksWithoutAnOperatorCanConfirmShift() {
+        ActivityScenario.launch(CookShiftActivity::class.java).use {
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            var loaded = false
+            while (!loaded && SystemClock.elapsedRealtime() < deadline) {
+                try {
+                    onView(withText("Повар 1")).check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                        androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+                    loaded = true
+                } catch (_: androidx.test.espresso.NoMatchingViewException) { SystemClock.sleep(100) }
+            }
+            assertTrue(loaded)
+            onView(withText("Повар 1")).perform(click())
+            onView(withText("Повар 2")).perform(click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            role("cook-1", "cook")
+            role("cook-2", "cook")
+            onView(allOf(withText("Повар 2"), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
+            onView(withText("Подтвердить смену")).perform(scrollTo(), click())
+            while (CookLocalSession.cache(context).load() == null && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
+            val saved = CookLocalSession.cache(context).load()
+            assertNotNull(saved)
+            assertEquals(listOf("cook-1", "cook-2"), saved!!.shift.cooks)
+            assertTrue(saved.shift.operators.isEmpty())
+            assertEquals("cook-2", saved.shift.mainCookId)
+        }
+    }
+
+    @Test fun employeeListedAsOperatorCanWorkAsCookForThisShift() {
+        ActivityScenario.launch(CookShiftActivity::class.java).use {
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            var loaded = false
+            while (!loaded && SystemClock.elapsedRealtime() < deadline) {
+                try {
+                    onView(withText("Оператор 1")).check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                        androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+                    loaded = true
+                } catch (_: androidx.test.espresso.NoMatchingViewException) { SystemClock.sleep(100) }
+            }
+            assertTrue(loaded)
+            onView(withText("Оператор 1")).perform(scrollTo(), click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            onView(withTagValue(`is`("role:operator-1:cook" as Any))).check(
+                androidx.test.espresso.assertion.ViewAssertions.matches(not(isChecked())))
+            onView(withTagValue(`is`("role:operator-1:operator" as Any))).check(
+                androidx.test.espresso.assertion.ViewAssertions.matches(not(isChecked())))
+            role("operator-1", "cook")
+            onView(withText("Подтвердить смену")).perform(scrollTo(), click())
+            while (CookLocalSession.cache(context).load() == null && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
+            val saved = CookLocalSession.cache(context).load()
+            assertNotNull(saved)
+            assertEquals(listOf("operator-1"), saved!!.shift.cooks)
+            assertTrue(saved.shift.operators.isEmpty())
+            assertEquals("operator-1", saved.shift.mainCookId)
+        }
+    }
+
     @Test fun universalCanBeSelectedAsCookAndOperatorWithOneIdentity() {
         val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_universal", true)
         ActivityScenario.launch<CookShiftActivity>(intent).use { scenario ->
@@ -157,22 +234,21 @@ class CookShiftActivityTest {
             fun descendants(view: View): List<View> = listOf(view) +
                 if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
             var count = 0
-            while (count != 2 && SystemClock.elapsedRealtime() < deadline) {
+            while (count != 1 && SystemClock.elapsedRealtime() < deadline) {
                 scenario.onActivity { activity ->
                     count = descendants(activity.window.decorView).filterIsInstance<CheckBox>()
                         .count { it.text.toString() == "Повар 1" }
                 }
-                if (count != 2) SystemClock.sleep(100)
+                if (count != 1) SystemClock.sleep(100)
             }
-            assertEquals(2, count)
+            assertEquals(1, count)
             scenario.onActivity { activity ->
                 descendants(activity.window.decorView).filterIsInstance<CheckBox>()
-                    .filter { it.text.toString() == "Повар 1" }[0].performClick()
+                    .single { it.text.toString() == "Повар 1" }.performClick()
             }
-            scenario.onActivity { activity ->
-                descendants(activity.window.decorView).filterIsInstance<CheckBox>()
-                    .filter { it.text.toString() == "Повар 1" }[1].performClick()
-            }
+            onView(withText("Далее")).perform(scrollTo(), click())
+            role("cook-1", "cook")
+            role("cook-1", "operator")
             onView(withText("Подтвердить смену")).perform(scrollTo(), click())
             while (CookLocalSession.cache(context).load() == null && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
             val saved = CookLocalSession.cache(context).load()
@@ -180,6 +256,29 @@ class CookShiftActivityTest {
             assertEquals(listOf("cook-1"), saved!!.shift.cooks)
             assertEquals(listOf("cook-1"), saved.shift.operators)
             assertEquals("cook-1", saved.shift.mainCookId)
+        }
+    }
+
+    @Test fun universalEmployeeNeedsAnExplicitRoleBeforeConfirmation() {
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_universal", true)
+        ActivityScenario.launch<CookShiftActivity>(intent).use {
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            var loaded = false
+            while (!loaded && SystemClock.elapsedRealtime() < deadline) {
+                try {
+                    onView(withText("Повар 1")).check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                        androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+                    loaded = true
+                } catch (_: androidx.test.espresso.NoMatchingViewException) { SystemClock.sleep(100) }
+            }
+            assertTrue(loaded)
+            onView(withText("Повар 1")).perform(click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            onView(withText("Подтвердить смену")).perform(scrollTo(), click())
+            onView(withText("Отметьте роль каждого выбранного сотрудника"))
+                .check(androidx.test.espresso.assertion.ViewAssertions.matches(
+                    androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+            assertEquals(null, CookLocalSession.cache(context).load())
         }
     }
 
@@ -197,7 +296,12 @@ class CookShiftActivityTest {
             onView(allOf(withText("Повар 1"), isAssignableFrom(CheckBox::class.java))).perform(click())
             onView(allOf(withText("Повар 2"), isAssignableFrom(CheckBox::class.java))).perform(scrollTo(), click())
             onView(allOf(withText("Повар 3"), isAssignableFrom(CheckBox::class.java))).perform(scrollTo(), click())
-            onView(allOf(withText("Повар 1"), isAssignableFrom(CheckBox::class.java))).perform(scrollTo(), click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            role("cook-1", "cook")
+            role("cook-2", "cook")
+            role("cook-3", "cook")
+            onView(allOf(withText("Повар 1"), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
+            role("cook-1", "cook")
             fun descendants(view: View): List<View> = listOf(view) +
                 if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
             scenario.onActivity { activity ->
@@ -242,6 +346,8 @@ class CookShiftActivityTest {
             }
             onView(allOf(withText("Повар 1"), isAssignableFrom(CheckBox::class.java))).perform(click())
             onView(allOf(withText(newName), isAssignableFrom(CheckBox::class.java))).perform(scrollTo(), click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            role(pendingEmployeeId(binding, newName), "cook")
             onView(withText("Подтвердить смену")).perform(scrollTo(), click())
             val scope = CookLocalSession.offlineScope(context, binding)
             val cache = CookOfflineSelectionCache(CookLocalSession.preferences(context), CookOfflineDatabase.get(context).queue(), scope)
@@ -289,6 +395,9 @@ class CookShiftActivityTest {
             }
             onView(withText(newcomer)).perform(scrollTo(), click())
             onView(withText("Оператор 1")).perform(scrollTo(), click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            role(pendingEmployeeId(binding, newcomer), "cook")
+            role("operator-1", "operator")
             onView(withText("Подтвердить смену")).perform(scrollTo(), click())
             val local = CookLocalSession.preferences(context)
             while (!local.contains(CookOfflineSelectionCache.KEY) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
@@ -346,6 +455,7 @@ class CookShiftActivityTest {
                     } catch (_: androidx.test.espresso.NoMatchingViewException) { SystemClock.sleep(100) }
                 }
                 assertTrue("Synced employee was not restored", shown)
+                onView(withText("Далее")).perform(scrollTo(), click())
                 onView(withText("Подтвердить смену")).perform(scrollTo(), click())
                 val cache = CookOfflineSelectionCache(CookLocalSession.preferences(context), dao, scope)
                 var active = cache.load()

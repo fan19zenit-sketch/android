@@ -158,7 +158,7 @@ object CookOfflineValidation {
         val cooks = references(value.cooksJson)
         val operators = references(value.operatorsJson)
         val main = reference(JSONObject(value.mainCookJson))
-        require(cooks.isNotEmpty() && operators.isNotEmpty() && main in cooks)
+        require(cooks.isNotEmpty() && main in cooks)
         require(cooks.size == cooks.toSet().size && operators.size == operators.toSet().size)
         require(cooks.map { it.second }.distinct().size == cooks.size && operators.map { it.second }.distinct().size == operators.size)
     }

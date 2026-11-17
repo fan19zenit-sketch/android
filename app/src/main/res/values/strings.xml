@@ -27,6 +27,10 @@
     <string name="history_retry_confirm">Отправить это сохранённое фото? Снимок за прошлый день появится в чате сейчас. Повтор использует прежний ID отправки.</string>
     <string name="history_confirm_delete">Удалить это фото из рабочего чата?</string>
     <string name="history_summary">В чате: %1$d   ·   В пути: %2$d   ·   Проверить: %3$d</string>
+    <string name="history_filter_all">Все</string>
+    <string name="history_filter_progress">В пути</string>
+    <string name="history_filter_attention">Проверить: %1$d</string>
+    <string name="history_filter_empty">В этом разделе снимков нет.</string>
     <string name="setup_queue_pending">Сначала завершите отправку фото текущего города</string>
     <string name="camera_hint">Продукт и весы целиком в кадре</string>
     <string name="camera_shutter_label">Снять фото</string>

@@ -37,7 +37,10 @@ class CookShiftActivity : AppCompatActivity() {
     private var employees: List<CookEmployee> = emptyList()
     private val cooks = linkedSetOf<String>()
     private val operators = linkedSetOf<String>()
+    private val selectedPeople = linkedSetOf<String>()
+    private var roleStage = false
     private var mainCook: String? = null
+    private var mainCookImplicit = false
     private var busy = false
     private var offlineMode = false
     private val preview get() = BuildConfig.BUILD_TYPE == "preview"
@@ -187,8 +190,9 @@ class CookShiftActivity : AppCompatActivity() {
                     active ?: CookLocalSession.cache(applicationContext).load()
                 }
                 if (previous?.binding == newBinding) {
-                    cooks.addAll(previous.shift.cooks.filter { id -> roster.any { it.id == id && "cook" in it.roles } })
-                    operators.addAll(previous.shift.operators.filter { id -> roster.any { it.id == id && "operator" in it.roles } })
+                    cooks.addAll(previous.shift.cooks.filter { id -> roster.any { it.id == id } })
+                    operators.addAll(previous.shift.operators.filter { id -> roster.any { it.id == id } })
+                    selectedPeople.addAll(cooks + operators)
                     mainCook = previous.shift.mainCookId.takeIf { it in cooks }
                 }
                 render()
@@ -210,18 +214,60 @@ class CookShiftActivity : AppCompatActivity() {
             content.addView(label("Одинаковые имена: попросите управляющего уточнить сотрудников в общем списке.",
                 16f, Color.rgb(255, 180, 210)))
         }
-        content.addView(label("Повара", 20f))
-        employees.filter { "cook" in it.roles }.forEach { employee ->
+        if (!roleStage) {
+            content.addView(label("Кто сегодня работает?", 20f))
+            employees.forEach { employee ->
+                content.addView(CheckBox(this).apply {
+                    text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE)
+                    isChecked = employee.id in selectedPeople
+                    textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
+                    isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
+                    setOnCheckedChangeListener { button, checked ->
+                        if (checked) selectedPeople.add(employee.id) else {
+                            selectedPeople.remove(employee.id); cooks.remove(employee.id); operators.remove(employee.id)
+                            if (mainCook == employee.id) {
+                                mainCook = cooks.singleOrNull(); mainCookImplicit = mainCook != null
+                            }
+                        }
+                        if (!checked && CookEmployeeLabels.ambiguous(employee, employees)) button.isEnabled = false
+                    }
+                })
+            }
+            content.addView(action("Добавить сотрудника") { addEmployee() })
+            content.addView(action("Далее", primary = true) {
+                if (selectedPeople.isEmpty()) { showError("Выберите сотрудников смены"); return@action }
+                if (mainCook == null) { mainCook = cooks.singleOrNull(); mainCookImplicit = mainCook != null }
+                roleStage = true; render()
+            })
+            return
+        }
+        content.addView(label("Кто кем работает сегодня?", 20f))
+        content.addView(label("Отметьте роли выбранных сотрудников. Оператор не обязателен.", 16f))
+        employees.filter { it.id in selectedPeople }.forEach { employee ->
+            content.addView(label(CookEmployeeLabels.label(employee, employees), 18f))
             content.addView(CheckBox(this).apply {
-                text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE); isChecked = employee.id in cooks
+                tag = "role:${employee.id}:cook"
+                text = "Повар"; setTextColor(Color.WHITE); isChecked = employee.id in cooks
                 textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                 isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
                 setOnCheckedChangeListener { _, checked ->
                     if (checked) cooks.add(employee.id) else cooks.remove(employee.id)
-                    if (!checked && (employee.id == mainCook || mainCook == null)) mainCook = cooks.singleOrNull()
-                    else if (checked && mainCook == null && cooks.size == 1) mainCook = employee.id
+                    if (!checked && (employee.id == mainCook || mainCook == null)) {
+                        mainCook = cooks.singleOrNull(); mainCookImplicit = mainCook != null
+                    } else if (checked && cooks.size > 1 && mainCookImplicit) {
+                        mainCook = null; mainCookImplicit = false
+                    } else if (checked && mainCook == null && cooks.size == 1) {
+                        mainCook = employee.id; mainCookImplicit = true
+                    }
                     render()
                 }
+            })
+            content.addView(CheckBox(this).apply {
+                tag = "role:${employee.id}:operator"
+                text = "Оператор"; setTextColor(Color.WHITE); isChecked = employee.id in operators
+                textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
+                isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
+                setOnCheckedChangeListener { _, checked -> if (checked) operators.add(employee.id) else operators.remove(employee.id); render() }
             })
         }
         if (cooks.isNotEmpty()) {
@@ -233,21 +279,12 @@ class CookShiftActivity : AppCompatActivity() {
                         textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = employee.id == mainCook
                         isEnabled = !CookEmployeeLabels.ambiguous(employee, employees)
-                        setOnClickListener { mainCook = employee.id }
+                        setOnClickListener { mainCook = employee.id; mainCookImplicit = false }
                     })
                 }
             })
         }
-        content.addView(label("Операторы", 20f))
-        employees.filter { "operator" in it.roles }.forEach { employee ->
-            content.addView(CheckBox(this).apply {
-                text = CookEmployeeLabels.label(employee, employees); setTextColor(Color.WHITE); isChecked = employee.id in operators
-                textSize = 16f; minHeight = dp(48); buttonTintList = choiceTint()
-                isEnabled = !CookEmployeeLabels.ambiguous(employee, employees) || isChecked
-                setOnCheckedChangeListener { _, checked -> if (checked) operators.add(employee.id) else operators.remove(employee.id); render() }
-            })
-        }
-        content.addView(action("Добавить сотрудника") { addEmployee() })
+        content.addView(action("Назад к сотрудникам") { roleStage = false; render() })
         content.addView(action("Подтвердить смену", primary = true) { saveShift() }.apply { isEnabled = !busy })
     }
 
@@ -320,8 +357,12 @@ class CookShiftActivity : AppCompatActivity() {
         val binding = binding ?: return
         val timezone = binding.timezone ?: return
         val main = mainCook
-        if (cooks.isEmpty() || operators.isEmpty() || main == null || main !in cooks) {
-            showError("Выберите поваров, операторов и основного повара")
+        if (selectedPeople.any { it !in cooks && it !in operators }) {
+            showError("Отметьте роль каждого выбранного сотрудника")
+            return
+        }
+        if (cooks.isEmpty() || main == null || main !in cooks) {
+            showError("Выберите поваров и основного повара")
             return
         }
         if (employees.any { it.id in cooks + operators && CookEmployeeLabels.ambiguous(it, employees) }) {

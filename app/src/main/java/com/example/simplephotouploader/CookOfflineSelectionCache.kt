@@ -51,13 +51,12 @@ class CookOfflineSelectionCache(private val preferences: SharedPreferences, priv
         val people = employees.associateBy { it.id }
         require(people.size == employees.size && people.keys.none { it.isBlank() })
         require(employees.all { it.displayName.isNotBlank() && it.roles.isNotEmpty() && it.roles.all { role -> role in setOf("cook", "operator") } })
-        fun memberRefs(raw: String, role: String): List<String> {
+        fun memberRefs(raw: String): List<String> {
             val refs = JSONArray(raw)
             return (0 until refs.length()).map { index ->
                 val ref = refs.getJSONObject(index)
                 val id = ref.getString("id")
                 val person = requireNotNull(people[id])
-                require(role in person.roles)
                 if (ref.getString("kind") == "provisional") {
                     val local = requireNotNull(dao.employee(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision, id))
                     val localRoles = JSONArray(local.rolesJson).let { array -> (0 until array.length()).map { array.getString(it) }.toSet() }
@@ -66,8 +65,8 @@ class CookOfflineSelectionCache(private val preferences: SharedPreferences, priv
                 id
             }
         }
-        val cooks = memberRefs(record.cooksJson, "cook")
-        val operators = memberRefs(record.operatorsJson, "operator")
+        val cooks = memberRefs(record.cooksJson)
+        val operators = memberRefs(record.operatorsJson)
         val main = JSONObject(record.mainCookJson).getString("id")
         val shift = CookShift(record.provisionalId, 1, record.branchRef, record.operationalDate, record.timezone,
             record.confirmedAt, cooks, operators, main)

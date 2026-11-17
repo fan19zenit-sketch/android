@@ -34,7 +34,7 @@ object CookPhotoContextFactory {
         require(binding == confirmedBinding && binding.branchRef.isNotBlank() && binding.revision > 0)
         require(shift.branchRef == binding.branchRef && shift.revision > 0 && shift.id.isNotBlank())
         require(binding.timezone == null || binding.timezone == shift.timezone)
-        require(shift.cooks.isNotEmpty() && shift.operators.isNotEmpty() && shift.mainCookId in shift.cooks)
+        require(shift.cooks.isNotEmpty() && shift.mainCookId in shift.cooks)
         require(shift.cooks.size == shift.cooks.toSet().size && shift.operators.size == shift.operators.toSet().size)
         val zone = ZoneId.of(shift.timezone)
         require(LocalDate.parse(shift.operationalDate) == capturedAt.atZone(zone).toLocalDate())
@@ -42,7 +42,6 @@ object CookPhotoContextFactory {
         require(selectionSource in setOf("main_default", "one_shot", "explicit_unknown", "shared"))
         if (selectionSource in setOf("main_default", "one_shot")) {
             require(employee != null && employee.id in shift.cooks && employee.displayName.isNotBlank())
-            require("cook" in employee.roles)
             require(selectionSource != "main_default" || employee.id == shift.mainCookId)
             require(selectionSource != "one_shot" || employee.id != shift.mainCookId)
         } else {
@@ -82,7 +81,7 @@ object CookPhotoContextFactory {
         val main = ref(JSONObject(shift.mainCookJson))
         if (selectionSource in setOf("main_default", "one_shot")) {
             require(employee != null && selectedRef != null && selectedRef in cooks)
-            require(employee.id == selectedRef.id && employee.displayName.isNotBlank() && "cook" in employee.roles)
+            require(employee.id == selectedRef.id && employee.displayName.isNotBlank())
             require(selectionSource != "main_default" || selectedRef == main)
             require(selectionSource != "one_shot" || selectedRef != main)
         } else {

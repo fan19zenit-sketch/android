@@ -43,6 +43,7 @@ class DiagnosticsRecoveryTest {
         DiagnosticJournal.acknowledge(context, ids + UUID.randomUUID().toString())
         assertEquals(228, DiagnosticJournal.events(context).size)
         val report = DiagnosticJournal.export(context).readText()
+        assertTrue(report.contains("photo_attention_summary"))
         listOf("token", "installation", "device_uuid", "photoPath", "Authorization", "private").forEach {
             assertFalse(it, report.contains(it))
         }

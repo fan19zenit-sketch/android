@@ -3,6 +3,7 @@ package com.example.simplephotouploader
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.widget.RadioButton
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
@@ -14,6 +15,8 @@ import androidx.test.espresso.matcher.ViewMatchers.isEnabled
 import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.withTagValue
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONObject
@@ -22,6 +25,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.`is`
 import java.time.LocalTime
 import java.time.Instant
 import java.time.ZoneId
@@ -30,6 +35,10 @@ import java.time.ZonedDateTime
 @RunWith(AndroidJUnit4::class)
 class CookCameraFlowTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
+
+    private fun role(employeeId: String, role: String) {
+        onView(withTagValue(`is`("role:$employeeId:$role" as Any))).perform(scrollTo(), click())
+    }
 
     @Before fun prepare() {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
@@ -70,6 +79,11 @@ class CookCameraFlowTest {
             onView(withText("Повар 1")).perform(click())
             onView(withText("Повар 2")).perform(click())
             onView(withText("Оператор 1")).perform(scrollTo(), click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            role("cook-1", "cook")
+            role("cook-2", "cook")
+            role("operator-1", "operator")
+            onView(allOf(withText("Повар 1"), isAssignableFrom(RadioButton::class.java))).perform(scrollTo(), click())
             onView(withText("Подтвердить смену")).perform(scrollTo(), click())
             await { visible("Повар 2") && cameraReady() }
             onView(withText("Повар 2")).perform(click())
@@ -92,6 +106,9 @@ class CookCameraFlowTest {
             await { visible("Повар 1") }
             onView(withText("Повар 1")).perform(click())
             onView(withText("Оператор 1")).perform(scrollTo(), click())
+            onView(withText("Далее")).perform(scrollTo(), click())
+            role("cook-1", "cook")
+            role("operator-1", "operator")
             onView(withText("Подтвердить смену")).perform(scrollTo(), click())
             await { visible("Повар 1 · основной") && cameraReady() }
             context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
@@ -112,9 +129,9 @@ class CookCameraFlowTest {
         val launch = Intent(context, MainActivity::class.java).putExtra("test_shift_clock_ms", morning.toEpochMilli())
         ActivityScenario.launch<MainActivity>(launch).use { scenario ->
             await { cameraReady() && visible("Смена") }
-            assertTrue(!visible("Подтвердить смену"))
+            assertTrue(!visible("Далее"))
             scenario.onActivity { it.intent.putExtra("test_shift_clock_ms", morning.plusSeconds(1).toEpochMilli()) }
-            await { visible("Подтвердить смену") }
+            await { visible("Далее") }
         }
     }
 

@@ -33,6 +33,12 @@ class CookPhotoContextFactoryTest {
         assertEquals(2, next.getInt("bindingRevision"))
     }
 
+    @Test fun confirmedShiftWithoutOperatorsStillAttributesPhotoToCook() {
+        val result = JSONObject(CookPhotoContextFactory.create(binding, binding,
+            shift.copy(operators = emptyList()), cook, "main_default", time))
+        assertEquals("cook", result.getJSONObject("cookRef").getString("id"))
+    }
+
     @Test fun unknownAndSharedNeverNameAnEmployee() {
         for (source in listOf("explicit_unknown", "shared")) {
             val result = JSONObject(CookPhotoContextFactory.create(binding, binding, shift, null, source, time))
@@ -52,8 +58,15 @@ class CookPhotoContextFactoryTest {
         invalid { CookPhotoContextFactory.create(binding, binding, shift, cook, "main_default", time.plusSeconds(86400)) }
         invalid { CookPhotoContextFactory.create(binding, binding, shift, second, "main_default", time) }
         invalid { CookPhotoContextFactory.create(binding, binding, shift, cook, "one_shot", time) }
-        invalid { CookPhotoContextFactory.create(binding, binding, shift, cook.copy(roles = listOf("operator")), "main_default", time) }
         invalid { CookPhotoContextFactory.create(binding, binding, shift, cook, "main_default", time.minusSeconds(600)) }
+    }
+
+    @Test fun shiftRoleRatherThanRosterDefaultDeterminesPhotoAttribution() {
+        val operatorNormally = cook.copy(roles = listOf("operator"))
+        val context = JSONObject(CookPhotoContextFactory.create(binding, binding, shift, operatorNormally, "main_default", time))
+        assertEquals("cook", context.getJSONObject("cookRef").getString("id"))
+        assertEquals(listOf("operator"), operatorNormally.roles)
+        invalid { CookPhotoContextFactory.create(binding, binding, shift, operatorNormally.copy(id = "outsider"), "main_default", time) }
     }
 
     @Test fun provisionalSnapshotPreservesOfflineChoiceAndScope() {
@@ -74,6 +87,12 @@ class CookPhotoContextFactoryTest {
         assertEquals(provisionalShift, data.getJSONObject("shiftRef").getString("id"))
         assertEquals(provisionalCook, data.getJSONObject("cookRef").getString("id"))
         assertEquals("Повар", data.getString("cookNameSnapshot"))
+        val withoutOperator = JSONObject(CookPhotoContextFactory.createProvisional(scope,
+            offline.copy(operatorsJson = "[]"), first, selected, "main_default", time))
+        assertEquals(provisionalCook, withoutOperator.getJSONObject("cookRef").getString("id"))
+        val variableRole = JSONObject(CookPhotoContextFactory.createProvisional(scope,
+            offline.copy(operatorsJson = "[]"), first.copy(roles = listOf("operator")), selected, "main_default", time))
+        assertEquals(provisionalCook, variableRole.getJSONObject("cookRef").getString("id"))
         assertEquals(snapshot, CookPhotoContextFactory.createProvisional(scope, offline.copy(canonicalRevision = 3), first, selected, "main_default", time))
         val oneShot = JSONObject(CookPhotoContextFactory.createProvisional(scope, offline, second,
             CookOfflineRef("employee", "second"), "one_shot", time))

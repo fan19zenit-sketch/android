@@ -92,6 +92,37 @@ class CookOfflineDatabaseTest {
         assertTrue(dao.pendingEmployees("https://other.test", first.deviceUuid, first.branchRef, 1).isEmpty())
     }
 
+    @Test fun offlineShiftWithoutOperatorsIsPersisted() {
+        val record = shift().copy(operatorsJson = "[]")
+        dao.enqueueEmployee(employee())
+        dao.enqueueShift(record)
+        val stored = dao.pendingShifts(record.backendUrl, record.deviceUuid, record.branchRef, record.bindingRevision)
+        assertEquals("[]", stored.single().operatorsJson)
+        val prefs = ApplicationProvider.getApplicationContext<Context>()
+            .getSharedPreferences("offline_no_operator_test", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val cache = CookOfflineSelectionCache(prefs, dao, scope())
+        assertTrue(cache.save(record, listOf(CookEmployee(employeeId, "Повар", listOf("cook")))))
+        assertEquals(emptyList<String>(), cache.load()!!.shift.operators)
+        prefs.edit().clear().commit()
+    }
+
+    @Test fun offlineShiftRoleCanDifferFromRosterRole() {
+        val person = employee().copy(rolesJson = "[\"operator\"]")
+        val record = shift().copy(operatorsJson = "[]")
+        dao.enqueueEmployee(person)
+        dao.enqueueShift(record)
+        val prefs = ApplicationProvider.getApplicationContext<Context>()
+            .getSharedPreferences("offline_variable_role_test", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        val cache = CookOfflineSelectionCache(prefs, dao, scope())
+        val employee = CookEmployee(employeeId, "Повар", listOf("operator"))
+        assertTrue(cache.save(record, listOf(employee)))
+        assertEquals(listOf(employeeId), cache.load()!!.shift.cooks)
+        assertEquals(listOf("operator"), cache.load()!!.employees.single().roles)
+        prefs.edit().clear().commit()
+    }
+
     @Test fun confirmedNewcomerRemainsAvailableOnlyForItsDeviceAndBinding() {
         val person = employee()
         dao.enqueueEmployee(person)

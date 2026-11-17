@@ -25,4 +25,12 @@ class CookShiftPolicyTest {
         assertFalse(CookShiftPolicy.usable(shift, binding, binding, now.minusSeconds(180)))
         assertTrue(CookShiftPolicy.needsConfirmation(shift, binding, binding, "unknown/timezone", now))
     }
+
+    @Test fun shiftWithTwoCooksAndNoOperatorIsUsableButMainCookRemainsRequired() {
+        val now = Instant.parse("2026-11-05T08:02:00Z")
+        val twoCooks = shift.copy(cooks = listOf("cook", "second"), operators = emptyList())
+        assertTrue(CookShiftPolicy.usable(twoCooks, binding, binding, now))
+        assertFalse(CookShiftPolicy.usable(twoCooks.copy(mainCookId = "not-on-shift"), binding, binding, now))
+        assertFalse(CookShiftPolicy.usable(twoCooks.copy(cooks = emptyList()), binding, binding, now))
+    }
 }

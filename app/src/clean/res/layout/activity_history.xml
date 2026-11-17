@@ -11,6 +11,18 @@
         android:layout_height="wrap_content" android:layout_marginTop="10dp" android:padding="14dp"
         android:background="@drawable/clean_card_background" android:text="@string/history_subtitle"
         android:textColor="@color/clean_text_secondary" android:textSize="13sp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Button android:id="@+id/btnHistoryAll" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp"
+            android:text="@string/history_filter_all" android:textAllCaps="false" />
+        <Button android:id="@+id/btnHistoryProgress" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp"
+            android:text="@string/history_filter_progress" android:textAllCaps="false" />
+        <Button android:id="@+id/btnHistoryAttention" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="0dp" android:layout_weight="1.5" android:layout_height="48dp"
+            android:textAllCaps="false" />
+    </LinearLayout>
     <TextView android:id="@+id/tvEmpty" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:padding="30dp" android:gravity="center" android:text="@string/history_empty"
         android:textColor="@color/clean_text_secondary" android:visibility="gone" />
