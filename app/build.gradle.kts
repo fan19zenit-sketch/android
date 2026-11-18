@@ -28,8 +28,8 @@ android {
         create("clean") {
             dimension = "track"
             applicationId = "com.example.photovchistotu"
-            versionCode = 20261119
-            versionName = "3.3.6"
+            versionCode = 20261120
+            versionName = "3.3.7"
             manifestPlaceholders["appLabel"] = "Фото в чистоту 2"
         }
     }
@@ -80,6 +80,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.5.3")
     implementation("androidx.camera:camera-lifecycle:1.5.3")
     implementation("androidx.camera:camera-view:1.5.3")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

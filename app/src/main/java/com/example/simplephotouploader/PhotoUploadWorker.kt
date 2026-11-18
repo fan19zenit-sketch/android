@@ -107,6 +107,14 @@ object UploadCoordinator {
                     error = applicationContext.getString(R.string.history_binding_changed)))
                 continue
             }
+            // An explicit retry of an interrupted local preparation uses the same original and UUID.
+            if (file.name.startsWith(CaptureJpeg.PREFIX)) {
+                try { CaptureJpeg.prepare(file, recovered = item.manualRetryApproved) } catch (error: Exception) {
+                    PhotoHistoryStore.markError(applicationContext, item.photoPath, applicationContext.getString(R.string.camera_save_error))
+                    RemoteSupport.event(applicationContext, "jpeg_prepare_error")
+                    continue
+                }
+            }
             PhotoHistoryStore.markSending(applicationContext, item.photoPath)
             updateStatus(applicationContext, R.string.status_sending)
             val body = PhotoUploadMultipart.build(deviceId, item.id, file, item.photoContext)

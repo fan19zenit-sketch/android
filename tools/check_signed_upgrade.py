@@ -44,6 +44,7 @@ def adb(*args, check=True):
 
 
 class Fixture(BaseHTTPRequestHandler):
+    max_request = 1_000_000
     received: list[tuple[str, str, bytes, bool]] = []
     lock = threading.Lock()
 
@@ -63,7 +64,7 @@ class Fixture(BaseHTTPRequestHandler):
             self.respond(404, {})
             return
         length = int(self.headers.get('Content-Length', '0'))
-        if not 0 < length < 1_000_000:
+        if not 0 < length < self.max_request:
             self.respond(400, {})
             return
         content = self.rfile.read(length)

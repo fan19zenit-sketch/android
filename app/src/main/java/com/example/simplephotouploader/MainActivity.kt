@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
+import android.view.OrientationEventListener
+import android.view.Surface
 import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -42,6 +44,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var captureButton: View
     private lateinit var settingsButton: View
     private var imageCapture: ImageCapture? = null
+    private var physicalRotation: Int? = null
+    private val rotationListener by lazy {
+        object : OrientationEventListener(this) {
+            override fun onOrientationChanged(degrees: Int) {
+                if (degrees != ORIENTATION_UNKNOWN) physicalRotation = UseCase.snapToSurfaceRotation(degrees)
+            }
+        }
+    }
     private var cameraError = false
     private var cameraStarting = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -120,6 +130,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (isFinishing) return
+        if (BuildConfig.FLAVOR == "clean" && rotationListener.canDetectOrientation()) rotationListener.enable()
         if (imageCapture == null && !cameraStarting &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera()
         RemoteSupport.schedule(this)
@@ -177,6 +188,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        if (BuildConfig.FLAVOR == "clean") {
+            rotationListener.disable()
+            physicalRotation = null
+        }
         refreshJob?.cancel()
         botRosterJob?.cancel()
         cookRefreshJob?.cancel()
@@ -296,7 +311,8 @@ class MainActivity : AppCompatActivity() {
         captureButton.isEnabled = false
         statusText.setText(R.string.camera_capturing)
         val folder = File(filesDir, "photos").apply { mkdirs() }
-        val file = File(folder, "IMG_${UUID.randomUUID()}.jpg")
+        val cleanCapture = BuildConfig.FLAVOR == "clean"
+        val file = File(folder, (if (cleanCapture) CaptureJpeg.PREFIX else "IMG_") + captureId + ".jpg")
         val watchdog = App.ioScope.launch {
             delay(30_000)
             withContext(Dispatchers.Main) {
@@ -314,67 +330,93 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        try {
-            camera.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(),
-                ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
-                    override fun onError(error: ImageCaptureException) {
-                        watchdog.cancel()
-                        if (!timedOut.get()) RemoteSupport.event(applicationContext, "camera_capture_error")
-                        reserved?.let { cookSelection.finish(it, false) }
-                        if (captures.finish(captureId) && !isDestroyed) {
-                            captureButton.isEnabled = imageCapture != null
-                            statusText.setText(R.string.status_error)
+        val shutterRotation = physicalRotation ?: previewView.display?.rotation ?: Surface.ROTATION_0
+        App.ioScope.launch(Dispatchers.Main.immediate) {
+            try {
+                val stagedId = if (cleanCapture) withContext(Dispatchers.IO) {
+                    PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt, frozenContext,
+                        frozenDevice.takeIf { frozenContext != null }, frozenBackend.takeIf { frozenContext != null },
+                        locallyPreparing = true)
+                } else null
+                if (cleanCapture) {
+                    check(!timedOut.get() && !isDestroyed && !isFinishing &&
+                        lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+                    camera.targetRotation = shutterRotation
+                }
+                camera.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(),
+                    ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
+                        override fun onError(error: ImageCaptureException) {
+                            watchdog.cancel()
+                            if (cleanCapture) App.ioScope.launch { PhotoHistoryStore.holdOrDropPreparation(applicationContext, file) }
+                            if (!timedOut.get()) RemoteSupport.event(applicationContext, "camera_capture_error")
+                            reserved?.let { cookSelection.finish(it, false) }
+                            if (captures.finish(captureId) && !isDestroyed) {
+                                captureButton.isEnabled = imageCapture != null
+                                statusText.setText(R.string.status_error)
+                            }
                         }
-                    }
-                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                        watchdog.cancel()
-                        // Application scope survives screen rotation while persisting the capture.
-                        App.ioScope.launch {
-                            try {
-                                if (timedOut.get()) {
-                                    val database = PilotDatabase.get(applicationContext)
-                                    database.runInTransaction {
-                                        PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt)
-                                        database.photoRecordDao().getByPhotoPath(file.absolutePath)?.let {
-                                            database.photoRecordDao().update(it.copy(status = "needs_review",
-                                                queuedInUploadQueue = false, error = getString(R.string.camera_late_capture)))
+                        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                            watchdog.cancel()
+                            // Application scope survives screen rotation while persisting the capture.
+                            App.ioScope.launch {
+                                try {
+                                    if (stagedId != null) {
+                                        try {
+                                            CaptureJpeg.prepare(file)
+                                            PhotoHistoryStore.finishPreparation(applicationContext, file.absolutePath, stagedId,
+                                                getString(R.string.camera_late_capture).takeIf { timedOut.get() })
+                                        } catch (error: Exception) {
+                                            PhotoHistoryStore.markError(applicationContext, file.absolutePath, getString(R.string.camera_save_error))
+                                            throw error
                                         }
+                                    } else if (timedOut.get()) {
+                                        val database = PilotDatabase.get(applicationContext)
+                                        database.runInTransaction {
+                                            PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt)
+                                            database.photoRecordDao().getByPhotoPath(file.absolutePath)?.let {
+                                                database.photoRecordDao().update(it.copy(status = "needs_review",
+                                                    queuedInUploadQueue = false, error = getString(R.string.camera_late_capture)))
+                                            }
+                                        }
+                                    } else {
+                                        PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt, frozenContext,
+                                            frozenDevice.takeIf { frozenContext != null }, frozenBackend.takeIf { frozenContext != null })
                                     }
-                                } else {
-                                    PhotoHistoryStore.addQueued(applicationContext, file.absolutePath, capturedAt, frozenContext,
-                                        frozenDevice.takeIf { frozenContext != null }, frozenBackend.takeIf { frozenContext != null })
-                                    reserved?.let { cookSelection.finish(it, true) }
+                                    if (!timedOut.get()) {
+                                        reserved?.let { cookSelection.finish(it, true) }
+                                        withContext(Dispatchers.Main) {
+                                            frozenUnassigned?.let { unassignedSelection.finish(it, true) }
+                                        }
+                                        PhotoUploadWorker.enqueue(applicationContext)
+                                        UploadCoordinator.kick(applicationContext)
+                                    }
                                     withContext(Dispatchers.Main) {
-                                        frozenUnassigned?.let { unassignedSelection.finish(it, true) }
+                                        if (!isDestroyed) statusText.setText(if (timedOut.get()) R.string.camera_late_capture else R.string.camera_saved)
                                     }
-                                    PhotoUploadWorker.enqueue(applicationContext)
-                                    UploadCoordinator.kick(applicationContext)
-                                }
-                                withContext(Dispatchers.Main) {
-                                    if (!isDestroyed) statusText.setText(R.string.camera_saved)
-                                }
-                            } catch (error: Exception) {
-                                reserved?.let { cookSelection.finish(it, false) }
-                                RemoteSupport.event(applicationContext, "queue_save_error")
-                                Log.e("Camera", "Could not queue saved photo", error)
-                                withContext(Dispatchers.Main) {
-                                    if (!isDestroyed) statusText.setText(R.string.camera_save_error)
-                                }
-                            } finally {
-                                captures.finish(captureId)
-                                withContext(Dispatchers.Main) {
-                                    if (!isDestroyed) captureButton.isEnabled = imageCapture != null && !captures.busy
+                                } catch (error: Exception) {
+                                    reserved?.let { cookSelection.finish(it, false) }
+                                    RemoteSupport.event(applicationContext, "queue_save_error")
+                                    Log.e("Camera", "Could not queue saved photo", error)
+                                    withContext(Dispatchers.Main) {
+                                        if (!isDestroyed) statusText.setText(R.string.camera_save_error)
+                                    }
+                                } finally {
+                                    captures.finish(captureId)
+                                    withContext(Dispatchers.Main) {
+                                        if (!isDestroyed) captureButton.isEnabled = imageCapture != null && !captures.busy
+                                    }
                                 }
                             }
                         }
-                    }
-                })
-        } catch (error: Exception) {
-            watchdog.cancel()
-            reserved?.let { cookSelection.finish(it, false) }
-            captures.finish(captureId)
-            captureButton.isEnabled = imageCapture != null && !captures.busy
-            statusText.setText(R.string.status_error)
+                    })
+            } catch (error: Exception) {
+                watchdog.cancel()
+                if (cleanCapture) App.ioScope.launch { PhotoHistoryStore.holdOrDropPreparation(applicationContext, file) }
+                reserved?.let { cookSelection.finish(it, false) }
+                captures.finish(captureId)
+                captureButton.isEnabled = imageCapture != null && !captures.busy
+                statusText.setText(R.string.status_error)
+            }
         }
     }
 

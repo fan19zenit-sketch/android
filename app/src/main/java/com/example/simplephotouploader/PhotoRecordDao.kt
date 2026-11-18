@@ -8,6 +8,12 @@ import androidx.room.Update
 
 @Dao
 interface PhotoRecordDao {
+    @Query("UPDATE photo_records SET thumbnailPath = :thumb, status = :status, error = :error, queuedInUploadQueue = :queue WHERE photoPath = :path AND status = 'local_preparing' AND jobId IS NULL")
+    fun finishLocalPreparation(path: String, thumb: String?, error: String?, status: String, queue: Boolean): Int
+
+    @Query("SELECT photoPath FROM photo_records WHERE status = 'local_preparing' AND jobId IS NULL")
+    fun interruptedPaths(): List<String>
+
     @Query("SELECT COUNT(*) FROM photo_records WHERE queuedInUploadQueue = 1")
     fun queuedCount(): Int
 
@@ -55,7 +61,7 @@ interface PhotoRecordDao {
 
     @Query("UPDATE photo_records SET status = 'queued', error = NULL, queuedInUploadQueue = 1, manualRetryApproved = 1 WHERE photoPath = :path AND jobId IS NULL AND chatDeleted = 0 AND status IN ('error', 'needs_review', 'retrying')")
     fun retryLocal(path: String): Int
-    @Query("SELECT * FROM photo_records ORDER BY capturedAt DESC")
+    @Query("SELECT * FROM photo_records WHERE status != 'local_preparing' ORDER BY capturedAt DESC")
     fun getAllHistory(): List<PhotoRecordEntity>
 
     @Query("SELECT * FROM photo_records ORDER BY capturedAt DESC LIMIT 1")
