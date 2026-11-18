@@ -91,7 +91,7 @@ class CookCameraBackendIntegrationTest {
                         true
                     } catch (_: Throwable) { false }
                 }
-                onView(withText(second.displayName)).perform(scrollTo(), click())
+                onView(withText(second.displayName)).check(matches(isDisplayed())).perform(click())
                 onView(withId(R.id.captureButton)).perform(click())
                 await { dao.getAllHistory().any { row -> row.id !in existing && !row.jobId.isNullOrBlank() && row.photoContextAck == "resolved" } }
                 val row = dao.getAllHistory().single { it.id !in existing }
@@ -202,7 +202,7 @@ class CookCameraBackendIntegrationTest {
             ActivityScenario.launch(MainActivity::class.java).use {
                 onCameraAuthor(second.displayName)
                 await { captureReady() }
-                onView(withText(first.displayName)).perform(scrollTo(), click())
+                onView(withText(first.displayName)).check(matches(isDisplayed())).perform(click())
                 onView(withId(R.id.captureButton)).perform(click())
                 await { photos().size == 1 }
                 val old = photos().single()

@@ -15,6 +15,31 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class CaptureJpegTest {
+    @Test fun failedTemporaryWriteKeepsOriginalAndAllowsAnExactRetry() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = File.createTempFile("output-failure", ".jpg", context.cacheDir)
+        val collision = File(file.parentFile, file.name + ".preparing")
+        try {
+            val source = Bitmap.createBitmap(53, 37, Bitmap.Config.ARGB_8888)
+            try { file.outputStream().use { assertTrue(source.compress(Bitmap.CompressFormat.JPEG, 100, it)) } }
+            finally { source.recycle() }
+            ExifInterface(file).apply { setAttribute(ExifInterface.TAG_ORIENTATION, "6"); saveAttributes() }
+            val original = file.readBytes()
+            check(collision.mkdir())
+            assertTrue(runCatching { CaptureJpeg.prepare(file) }.exceptionOrNull() is java.io.IOException)
+            assertArrayEquals(original, file.readBytes())
+            collision.delete()
+            CaptureJpeg.prepare(file, recovered = true)
+            val prepared = file.readBytes()
+            CaptureJpeg.prepare(file, recovered = true)
+            assertArrayEquals(prepared, file.readBytes())
+            val frame = BitmapFactory.decodeFile(file.path)
+            assertEquals(37, frame.width)
+            assertEquals(53, frame.height)
+            frame.recycle()
+        } finally { collision.delete(); file.delete() }
+    }
+
     @Test fun interruptedCapturePreservesItsIdentityAndNeverUploadsAPartialFile() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dir = File(context.cacheDir, "jpeg-" + java.util.UUID.randomUUID()).also { check(it.mkdir()) }

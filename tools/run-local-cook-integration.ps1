@@ -3,11 +3,21 @@ param(
     [Parameter(Mandatory = $true)][string]$Emulator,
     [switch]$Background,
     [switch]$OfflineBackground,
-    [switch]$Camera
+    [switch]$Camera,
+    [ValidateSet('cameraPhotoKeepsSelectedCookThroughQueueAndBackend','botChangeOnOpenCameraKeepsOldQueuedPhotoAndPhoneAuthor')]
+    [string]$CameraCase
 )
 
 $ErrorActionPreference = 'Stop'
 if (@($Background, $OfflineBackground, $Camera).Where({ $_ }).Count -gt 1) { throw 'Choose only one scenario.' }
+if ($CameraCase -and -not $Camera) { throw 'CameraCase requires Camera.' }
+if ($Camera -and -not $CameraCase) {
+    # Each case asserts the total backend job count. Do not reuse another case's fixture database.
+    foreach ($case in ('cameraPhotoKeepsSelectedCookThroughQueueAndBackend','botChangeOnOpenCameraKeepsOldQueuedPhotoAndPhoneAuthor')) {
+        & $PSCommandPath -BackendRepo $BackendRepo -Emulator $Emulator -Camera -CameraCase $case
+    }
+    return
+}
 if ($Emulator -notmatch '^emulator-[0-9]+$') { throw 'Only an explicitly named Android emulator is permitted.' }
 if (-not $env:ANDROID_HOME) { throw 'Set ANDROID_HOME to the Android SDK.' }
 $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
@@ -95,7 +105,7 @@ try {
     $locationPushed = $true
     $testStarted = $true
     if (-not $Background -and -not $OfflineBackground) {
-        $class = if ($Camera) { 'com.example.simplephotouploader.CookCameraBackendIntegrationTest' }
+        $class = if ($Camera) { "com.example.simplephotouploader.CookCameraBackendIntegrationTest#$CameraCase" }
                  else { 'com.example.simplephotouploader.CookRealBackendIntegrationTest' }
         Invoke-IntegrationTest $class
     } else {
