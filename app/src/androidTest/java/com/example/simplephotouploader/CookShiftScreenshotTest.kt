@@ -72,7 +72,7 @@ class CookShiftScreenshotTest {
             "Преображенский-Рождественский Константин" else "Иванов Иван"
         val people = listOf(CookEmployee("first", firstName, listOf("cook")),
             CookEmployee("second", "Петрова Анна", listOf("cook")),
-            CookEmployee("operator", "Смирнова Ольга", listOf("operator")))
+            CookEmployee("operator", "Сидорова Мария", listOf("operator")))
         val shift = CookShift("design-shift", 1, "design", now.toLocalDate().toString(), "Europe/Moscow",
             now.minusMinutes(10).toOffsetDateTime().toString(), listOf("first", "second"), listOf("operator"), "first")
         val local = CookLocalSession.preferences(context)
@@ -110,6 +110,10 @@ class CookShiftScreenshotTest {
                     val content = activity.findViewById<android.view.View>(android.R.id.content)
                     val shutter = activity.findViewById<android.view.View>(R.id.captureButton)
                     check(shutter.width == shutter.height)
+                    val tiles = activity.findViewById<android.widget.LinearLayout>(R.id.cookChoices)
+                    val heights = (0 until tiles.childCount).map { tiles.getChildAt(it) }
+                        .filterIsInstance<android.widget.LinearLayout>().map { it.height }
+                    check(heights.size == 3 && heights.distinct().size == 1)
                     check(activity.findViewById<android.view.View>(R.id.statusText).visibility == android.view.View.GONE)
                     val portrait = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
                     val fraction = preview.height.toDouble() / content.height
@@ -118,7 +122,7 @@ class CookShiftScreenshotTest {
                     if (portrait && activity.resources.configuration.fontScale <= 1.0f) check(fraction >= 0.70)
                 }
                 save("11-camera")
-                onView(withText("Смирнова Ольга")).perform(click()); save("12a-operator")
+                onView(withText("Сидорова Мария")).perform(click()); save("12a-operator")
                 onView(withText("Петрова Анна")).perform(click()); save("12-one-shot")
                 onView(withText("Ещё")).perform(click()); save("13-other-authors")
                 onView(withText("Совместно")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); save("13b-shared")
@@ -127,6 +131,17 @@ class CookShiftScreenshotTest {
                 onView(withText("Смена")).perform(click()); waitFor("Сменить основного повара"); save("11c-change")
                 onView(withText("Сменить основного повара")).perform(click()); save("11d-persistent")
                 androidx.test.espresso.Espresso.pressBack(); androidx.test.espresso.Espresso.pressBack()
+            }
+            if (args.getString("check_landscape") != "true") {
+                prefs.edit().putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_PIZZA).commit()
+                val pizzaShift = shift.copy(cooks = listOf("first", "operator"), operators = emptyList())
+                check(CookLocalSession.cache(context).save(CachedCookShift(binding, pizzaShift, people)))
+                ActivityScenario.launch(MainActivity::class.java).use {
+                    waitFor(firstName)
+                    onView(withText("Сидорова Мария")).perform(click())
+                    save("12b-pizza-camera")
+                }
+                prefs.edit().putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
             }
             fixtures.forEach(dao::insert)
             ActivityScenario.launch(HistoryActivity::class.java).use {
@@ -155,7 +170,7 @@ class CookShiftScreenshotTest {
 
     @Test fun captureMainAndPizzaShiftScreens() {
         val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
-        prefs.edit().putString(AppPrefs.KEY_CITY, "Пример").putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
+        prefs.edit().putString(AppPrefs.KEY_CITY, "Шексна").putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
         CookLocalSession.cache(context).clear()
         CookPendingShiftStore(CookLocalSession.preferences(context)).clear()
         CookLocalSession.preferences(context).edit().remove(CookOfflineSelectionCache.KEY).commit()

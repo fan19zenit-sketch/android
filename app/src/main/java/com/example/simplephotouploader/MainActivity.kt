@@ -683,7 +683,7 @@ class MainActivity : AppCompatActivity() {
                 val pad = ((if (shown.size >= 3) 6 else 10) * unit).toInt()
                 setPadding(pad, pad / 2, pad, pad / 2)
                 minimumHeight = (48 * unit).toInt()
-                layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = (4 * unit).toInt() }
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply { marginEnd = (4 * unit).toInt() }
                 background = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = resources.getDimension(R.dimen.sushi_radius)
                     setColor(if (active) getColor(R.color.sushi_pink) else android.graphics.Color.rgb(39,39,39))
