@@ -574,7 +574,7 @@ class CookShiftActivity : AppCompatActivity() {
                 val ids = intent.getStringArrayExtra("author_ids").orEmpty()
                 val names = intent.getStringArrayExtra("author_names").orEmpty()
                 if (ids.size > 1 && ids.size == names.size) {
-                    content.addView(action("Основной автор на телефоне") {
+                    content.addView(action("Сменить основного повара") {
                         androidx.appcompat.app.AlertDialog.Builder(this).setTitle("Кто готовит дальше?")
                             .setSingleChoiceItems(names, ids.indexOf(intent.getStringExtra("current_author"))) { dialog, index ->
                                 setResult(RESULT_OK, android.content.Intent().putExtra("author_id", ids[index])

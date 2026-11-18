@@ -419,9 +419,9 @@ class CookShiftActivityTest {
             val deadline = SystemClock.elapsedRealtime() + 15_000
             var restored = false
             while (!restored && SystemClock.elapsedRealtime() < deadline) {
-                try { onView(withText("Следующее фото: $newcomer · локальная смена"))
+                try { onView(withText(newcomer))
                     .check(androidx.test.espresso.assertion.ViewAssertions.matches(
-                        androidx.test.espresso.matcher.ViewMatchers.isDisplayed())); restored = true }
+                        androidx.test.espresso.matcher.ViewMatchers.withParent(androidx.test.espresso.matcher.ViewMatchers.isSelected()))); restored = true }
                 catch (_: androidx.test.espresso.NoMatchingViewException) { SystemClock.sleep(100) }
             }
             assertTrue("First offline shift was not restored", restored)

@@ -663,19 +663,24 @@ class MainActivity : AppCompatActivity() {
         choices.removeAllViews()
         val authorIds = if (snapshot == null) emptyList() else (snapshot.shift.cooks +
                 if (operatorPhotoAuthorEnabled && !isPizzaPhone()) snapshot.shift.operators else emptyList()).distinct()
-        val shown = (listOfNotNull(cookSelection.persistentAuthor() ?: snapshot?.shift?.mainCookId, selected) + authorIds).distinct().take(2)
+        val main = cookSelection.persistentAuthor() ?: snapshot?.shift?.mainCookId
+        val operators = snapshot?.shift?.operators.orEmpty().filter { it in authorIds && !isPizzaPhone() }
+        // Operators stay on the camera even when several cooks are on duty.
+        val pinned = (listOfNotNull(main) + operators + listOfNotNull(selected)).distinct()
+        val shown = (pinned + authorIds).distinct().take(maxOf(if (operators.isEmpty()) 2 else 3, pinned.size))
         if (snapshot != null) shown.forEach { id ->
             val employee = snapshot.employees.firstOrNull { it.id == id } ?: return@forEach
             val active = id == selected
             val name = CookEmployeeLabels.label(employee, snapshot.employees)
-            val role = if (id == (cookSelection.persistentAuthor() ?: snapshot.shift.mainCookId)) "Основной"
+            val role = if (id == main) "Основной"
+                else if (id in operators && !active) "Оператор"
                 else if (isPizzaPhone()) "До смены повара" else "1 фото"
             val tone = if (active) android.graphics.Color.BLACK else android.graphics.Color.WHITE
             val unit = resources.displayMetrics.density
             choices.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
-                val pad = (10 * unit).toInt()
+                val pad = ((if (shown.size >= 3) 6 else 10) * unit).toInt()
                 setPadding(pad, pad / 2, pad, pad / 2)
                 minimumHeight = (48 * unit).toInt()
                 layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = (4 * unit).toInt() }

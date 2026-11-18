@@ -82,6 +82,10 @@ class CookCameraFlowTest {
 
     private fun next() = onView(withText("Далее")).perform(scrollTo(), click())
 
+    private fun startManualShift() = ActivityScenario.launch<MainActivity>(
+        Intent(context, MainActivity::class.java).putExtra("test_shift_clock_ms",
+            ZonedDateTime.now(ZoneId.of("Europe/Moscow")).with(LocalTime.of(10, 0)).toInstant().toEpochMilli()))
+
     private fun chooseShift(twoCooks: Boolean) {
         await { visible("Начать смену") }
         onView(withText("Начать смену")).perform(click())
@@ -101,7 +105,7 @@ class CookCameraFlowTest {
     @Test fun secondCookIsConsumedByOneLocallySavedPhoto() {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getAllHistory().map { it.id }.toSet()
-        ActivityScenario.launch(MainActivity::class.java).use {
+        startManualShift().use {
             await { visible("Смена") }
             onView(withText("Смена")).perform(click())
             chooseShift(twoCooks = true)
@@ -120,17 +124,37 @@ class CookCameraFlowTest {
         }
     }
 
+    @Test fun operatorOnCameraOwnsOnlyOnePhoto() {
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        val existing = dao.getAllHistory().map { it.id }.toSet()
+        startManualShift().use {
+            await { visible("Смена") }
+            onView(withText("Смена")).perform(click())
+            chooseShift(twoCooks = true)
+            await { visible("Оператор 1") && cameraReady() }
+            onView(withText("Оператор 1")).perform(click())
+            assertTrue(selectedAuthor("Оператор 1"))
+            onView(withId(R.id.captureButton)).perform(click())
+            await { selectedAuthor("Повар 1") && cameraReady() }
+            onView(withId(R.id.captureButton)).perform(click())
+            await { dao.getAllHistory().count { it.id !in existing } == 2 }
+            val ids = dao.getAllHistory().filter { it.id !in existing }.sortedBy { it.capturedAt }
+                .map { JSONObject(it.photoContext!!).getJSONObject("cookRef").getString("id") }
+            assertEquals(listOf("operator-1", "cook-1"), ids)
+        }
+    }
+
     @Test fun changingCurrentCookPersistsAcrossPhotosAndActivityRecreation() {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getAllHistory().map { it.id }.toSet()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        startManualShift().use { scenario ->
             await { visible("Смена") }
             onView(withText("Смена")).perform(click())
             chooseShift(twoCooks = true)
             await { visible("Смена") && cameraReady() }
             onView(withText("Смена")).perform(click())
-            await { visible("Основной автор на телефоне") }
-            onView(withText("Основной автор на телефоне")).perform(click())
+            await { visible("Сменить основного повара") }
+            onView(withText("Сменить основного повара")).perform(click())
             onView(withText("Повар 2")).inRoot(isDialog()).perform(click())
             await { selectedAuthor("Повар 2") }
             onView(withId(R.id.captureButton)).perform(click())
@@ -181,7 +205,7 @@ class CookCameraFlowTest {
     @Test fun changedDeviceCannotCaptureWithPreviousDeviceShift() {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getAllHistory().map { it.id }.toSet()
-        ActivityScenario.launch(MainActivity::class.java).use {
+        startManualShift().use {
             await { visible("Смена") }
             onView(withText("Смена")).perform(click())
             chooseShift(twoCooks = false)

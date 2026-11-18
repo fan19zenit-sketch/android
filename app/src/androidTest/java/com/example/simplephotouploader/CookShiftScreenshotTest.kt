@@ -71,9 +71,10 @@ class CookShiftScreenshotTest {
         val firstName = if (args.getString("long_names") == "true")
             "Преображенский-Рождественский Константин" else "Иванов Иван"
         val people = listOf(CookEmployee("first", firstName, listOf("cook")),
-            CookEmployee("second", "Петрова Анна", listOf("cook")))
+            CookEmployee("second", "Петрова Анна", listOf("cook")),
+            CookEmployee("operator", "Смирнова Ольга", listOf("operator")))
         val shift = CookShift("design-shift", 1, "design", now.toLocalDate().toString(), "Europe/Moscow",
-            now.minusMinutes(10).toOffsetDateTime().toString(), people.map { it.id }, emptyList(), "first")
+            now.minusMinutes(10).toOffsetDateTime().toString(), listOf("first", "second"), listOf("operator"), "first")
         val local = CookLocalSession.preferences(context)
         local.edit().remove(CookOfflineSelectionCache.KEY).remove("current_photo_author").commit()
         check(CookDeviceRosterCache(local).save(binding, people))
@@ -117,13 +118,14 @@ class CookShiftScreenshotTest {
                     if (portrait && activity.resources.configuration.fontScale <= 1.0f) check(fraction >= 0.70)
                 }
                 save("11-camera")
+                onView(withText("Смирнова Ольга")).perform(click()); save("12a-operator")
                 onView(withText("Петрова Анна")).perform(click()); save("12-one-shot")
                 onView(withText("Ещё")).perform(click()); save("13-other-authors")
                 onView(withText("Совместно")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); save("13b-shared")
                 onView(withText("Совместно")).perform(click())
                 onView(withText("Автор неизвестен")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); save("13c-unknown")
-                onView(withText("Смена")).perform(click()); waitFor("Основной автор на телефоне"); save("11c-change")
-                onView(withText("Основной автор на телефоне")).perform(click()); save("11d-persistent")
+                onView(withText("Смена")).perform(click()); waitFor("Сменить основного повара"); save("11c-change")
+                onView(withText("Сменить основного повара")).perform(click()); save("11d-persistent")
                 androidx.test.espresso.Espresso.pressBack(); androidx.test.espresso.Espresso.pressBack()
             }
             fixtures.forEach(dao::insert)
