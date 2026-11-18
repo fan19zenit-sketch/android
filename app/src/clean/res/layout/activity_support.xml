@@ -3,7 +3,7 @@
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:padding="18dp">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/support_title" android:textSize="30sp" android:textColor="@color/sushi_ink" android:fontFamily="sans-serif-black" />
+            android:text="@string/support_title" android:textSize="26sp" android:textColor="@color/sushi_ink" android:fontFamily="@font/manrope_heading" />
         <TextView android:id="@+id/supportDevice" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="20dp" android:textSize="16sp" android:textColor="@color/sushi_ink" />
         <TextView android:id="@+id/supportQueue" android:layout_width="match_parent" android:layout_height="wrap_content"

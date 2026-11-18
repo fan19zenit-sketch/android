@@ -180,9 +180,9 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun label(text: String, size: Float, color: Int = ink): TextView = TextView(this).apply {
         this.text = text
-        textSize = if (branded && size >= 20f) 28f else size
+        textSize = if (branded && size >= 20f) 26f else size
         if (size >= 20f) {
-            if (BuildConfig.FLAVOR == "clean") typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            if (BuildConfig.FLAVOR == "clean") sushiFont(R.attr.sushiHeadingFont)
             else setTypeface(typeface, Typeface.BOLD)
         }
         setTextColor(if (branded && color != ink) getColor(R.color.sushi_muted) else color)
@@ -194,17 +194,28 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun RadioButton.styleChoice() {
         if (BuildConfig.FLAVOR != "clean") return
-        fun card(color: Int, stroke: Int) = GradientDrawable().apply {
-            cornerRadius = dp(16).toFloat(); setColor(color); setStroke(dp(1), stroke)
+        fun card(color: Int) = GradientDrawable().apply {
+            cornerRadius = dp(12).toFloat(); setColor(color)
         }
         background = StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_checked), card(getColor(R.color.sushi_pink), ink))
-            addState(intArrayOf(), card(paper, getColor(R.color.sushi_line)))
+            addState(intArrayOf(android.R.attr.state_checked), card(getColor(R.color.sushi_pink)))
+            addState(intArrayOf(), card(Color.rgb(244, 239, 233)))
         }
+        buttonDrawable = null
+        sushiFont(R.attr.sushiLabelFont)
+        gravity = if (text.toString().toIntOrNull() != null) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
         setPadding(dp(14), dp(4), dp(14), dp(4))
-        minHeight = dp(58)
+        minHeight = dp(48)
         layoutParams = RadioGroup.LayoutParams(RadioGroup.LayoutParams.MATCH_PARENT, RadioGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(8) }
+    }
+
+    private fun RadioGroup.arrangeCounts() {
+        val n = childCount
+        if (!branded || n < 1 || resources.configuration.screenWidthDp - 40 < n * 52) return
+        orientation = RadioGroup.HORIZONTAL
+        for (i in 0 until n) getChildAt(i).layoutParams = RadioGroup.LayoutParams(0, -2, 1f)
+            .apply { if (i > 0) marginStart = dp(4) }
     }
 
     private fun action(text: String, primary: Boolean = false, click: () -> Unit): Button = Button(this).apply {
@@ -222,7 +233,8 @@ class CookShiftActivity : AppCompatActivity() {
                 intArrayOf(getColor(R.color.sushi_line), if (primary && wizardStep == 0 && !pizzaMode) getColor(R.color.sushi_pink) else if (primary) ink else Color.rgb(239, 232, 224)))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            stateListAnimator = null
+            sushiFont(R.attr.sushiLabelFont)
         } else {
             backgroundTintList = ColorStateList.valueOf(if (primary) Color.rgb(186, 56, 127) else Color.rgb(50, 50, 50))
         }
@@ -480,6 +492,7 @@ class CookShiftActivity : AppCompatActivity() {
                         styleChoice(); isChecked = count == pizzaCount; setOnClickListener { pizzaCount = count }
                     })
                 }
+                arrangeCounts()
             })
             content.addView(action("Далее", primary = true) {
                 pizzaCooks.clear(); pizzaChoice = null; pizzaStep = 1; render()
@@ -552,11 +565,25 @@ class CookShiftActivity : AppCompatActivity() {
                         styleChoice()
                     })
                 }
+                arrangeCounts()
             })
             content.addView(action("Далее", primary = true) { onNext(choice) })
         }
         when (wizardStep) {
             0 -> {
+                val ids = intent.getStringArrayExtra("author_ids").orEmpty()
+                val names = intent.getStringArrayExtra("author_names").orEmpty()
+                if (ids.size > 1 && ids.size == names.size) {
+                    content.addView(action("Основной автор на телефоне") {
+                        androidx.appcompat.app.AlertDialog.Builder(this).setTitle("Кто готовит дальше?")
+                            .setSingleChoiceItems(names, ids.indexOf(intent.getStringExtra("current_author"))) { dialog, index ->
+                                setResult(RESULT_OK, android.content.Intent().putExtra("author_id", ids[index])
+                                    .putExtra("shift_id", intent.getStringExtra("shift_id"))
+                                    .putExtra("revision", intent.getIntExtra("revision", -1)))
+                                dialog.dismiss(); finish()
+                            }.setNegativeButton("Отмена", null).show()
+                    })
+                }
                 if (branchTemplate != null) content.addView(label("Состав из бота", 16f))
                 content.addView(action("Начать смену", primary = true) {
                     if (!applyBranchTemplate()) wizardStep = 1

@@ -71,6 +71,12 @@ class HistoryActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.versionText)?.text = getString(R.string.app_version, BuildConfig.VERSION_NAME)
         renderHistory(recycler, emptyText)
 
+        findViewById<android.view.View>(R.id.historyMenu)?.setOnClickListener { anchor ->
+            val panel = findViewById<Button>(R.id.btnAvailableUpdate).parent as android.view.View
+            val show = panel.visibility != android.view.View.VISIBLE
+            panel.visibility = if (show) android.view.View.VISIBLE else android.view.View.GONE
+            anchor.isSelected = show
+        }
         backButton.setOnClickListener { finish() }
         findViewById<Button>(R.id.btnSupport).setOnClickListener {
             if (BuildConfig.FLAVOR == "clean") shareDiagnostics()

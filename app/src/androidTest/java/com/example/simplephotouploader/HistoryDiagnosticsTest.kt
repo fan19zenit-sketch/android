@@ -72,6 +72,7 @@ class HistoryDiagnosticsTest {
         try {
             prefs.edit().putString("update", update.toString()).putLong("last_sync", System.currentTimeMillis()).commit()
             ActivityScenario.launch(HistoryActivity::class.java).use {
+                onView(withId(R.id.historyMenu)).perform(androidx.test.espresso.action.ViewActions.click())
                 onView(withId(R.id.btnSupport)).check(matches(isDisplayed()))
                 onView(withId(R.id.btnAvailableUpdate)).check(matches(isDisplayed()))
             }

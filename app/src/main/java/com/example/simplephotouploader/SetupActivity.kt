@@ -103,7 +103,9 @@ class SetupActivity : AppCompatActivity() {
             telegramThreadInput.visibility = hidden
         }
 
-        cityInput.requestFocus()
+        if (isCleanApp && !savedCity.isNullOrEmpty()) {
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        } else cityInput.requestFocus()
 
         button.setOnClickListener {
             if (PhotoQueueStore.hasItems(this) || PilotDatabase.get(this).photoRecordDao().getPendingServerRecords().isNotEmpty()) {

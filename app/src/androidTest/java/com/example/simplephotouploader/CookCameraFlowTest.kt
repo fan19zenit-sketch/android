@@ -67,6 +67,12 @@ class CookCameraFlowTest {
         onView(withText(text)).check(matches(isDisplayed())); true
     } catch (_: Throwable) { false }
 
+    private fun selectedAuthor(name: String): Boolean = runCatching {
+        onView(withText(name)).check(matches(androidx.test.espresso.matcher.ViewMatchers.withParent(
+            androidx.test.espresso.matcher.ViewMatchers.isSelected())))
+        true
+    }.getOrDefault(false)
+
     private fun cameraReady(): Boolean = try {
         onView(withId(R.id.captureButton)).check(matches(isEnabled())); true
     } catch (_: Throwable) { false }
@@ -103,7 +109,7 @@ class CookCameraFlowTest {
             onView(withText("Автор неизвестен")).check(doesNotExist())
             onView(withText("Повар 2")).check(matches(withTagValue(`is`("cook-2" as Any))))
             onView(withText("Повар 2")).perform(click())
-            onView(withId(R.id.cookNext)).check(matches(withText("Следующее фото: Повар 2")))
+            assertTrue(selectedAuthor("Повар 2"))
             onView(withId(R.id.captureButton)).perform(click())
             await { dao.getAllHistory().count { it.id !in existing } >= 1 && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
@@ -121,14 +127,16 @@ class CookCameraFlowTest {
             await { visible("Смена") }
             onView(withText("Смена")).perform(click())
             chooseShift(twoCooks = true)
-            await { visible("Сменить повара") && cameraReady() }
-            onView(withText("Сменить повара")).perform(click())
+            await { visible("Смена") && cameraReady() }
+            onView(withText("Смена")).perform(click())
+            await { visible("Основной автор на телефоне") }
+            onView(withText("Основной автор на телефоне")).perform(click())
             onView(withText("Повар 2")).inRoot(isDialog()).perform(click())
-            await { visible("Следующее фото: Повар 2") }
+            await { selectedAuthor("Повар 2") }
             onView(withId(R.id.captureButton)).perform(click())
             await { dao.getAllHistory().count { it.id !in existing } >= 1 && cameraReady() }
             scenario.recreate()
-            await { visible("Следующее фото: Повар 2") && cameraReady() }
+            await { selectedAuthor("Повар 2") && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
             await { dao.getAllHistory().count { it.id !in existing } >= 2 }
             val photos = dao.getAllHistory().filter { it.id !in existing }.sortedBy { it.capturedAt }
@@ -154,13 +162,13 @@ class CookCameraFlowTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 await { visible("Повар 2") && cameraReady() }
                 onView(withText("Повар 2")).perform(click())
-                await { visible("Следующее фото: Повар 2") }
+                await { selectedAuthor("Повар 2") }
                 assertEquals("cook-2", JSONObject(CookLocalSession.preferences(context)
                     .getString("current_photo_author", null)!!).getString("employee"))
                 onView(withId(R.id.captureButton)).perform(click())
                 await { dao.getAllHistory().count { it.id !in existing } >= 1 && cameraReady() }
                 scenario.recreate()
-                await { visible("Следующее фото: Повар 2") && cameraReady() }
+                await { selectedAuthor("Повар 2") && cameraReady() }
                 onView(withId(R.id.captureButton)).perform(click())
                 await { dao.getAllHistory().count { it.id !in existing } >= 2 }
                 val photos = dao.getAllHistory().filter { it.id !in existing }.sortedBy { it.capturedAt }

@@ -1,13 +1,18 @@
 <merge xmlns:android="http://schemas.android.com/apk/res/android">
-    <TextView android:id="@+id/tvHistoryHeader" android:layout_width="match_parent"
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+        <Button android:id="@+id/btnBack" style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="48dp" android:layout_height="48dp" android:minWidth="0dp" android:padding="0dp" android:text="‹" android:textSize="26sp" android:contentDescription="@string/history_back" />
+    <TextView android:id="@+id/tvHistoryHeader" android:layout_width="0dp" android:layout_weight="1"
         android:layout_height="wrap_content" android:text="@string/history_title"
-        android:fontFamily="sans-serif-medium" android:letterSpacing="-0.02" android:textSize="30sp"
+        android:fontFamily="@font/manrope_heading" android:letterSpacing="-0.02" android:textSize="26sp"
         android:textColor="@color/clean_text_primary" />
+        <Button android:id="@id/historyMenu" style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="48dp" android:layout_height="48dp" android:minWidth="0dp" android:padding="0dp" android:text="⋯" android:textSize="22sp" android:contentDescription="Меню журнала" />
+    </LinearLayout>
+    <include layout="@layout/history_actions" />
     <TextView android:id="@+id/tvHistorySubheader" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="@string/history_loading"
         android:textColor="@color/clean_text_secondary" android:textSize="13sp" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="12dp" android:orientation="horizontal">
+        android:layout_marginTop="4dp" android:orientation="horizontal">
         <Button android:id="@+id/btnHistoryAll" style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="0dp" android:layout_weight="0.75" android:layout_height="48dp"
             android:minWidth="0dp" android:paddingHorizontal="2dp" android:textSize="13sp"

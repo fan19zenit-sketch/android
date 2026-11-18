@@ -19,27 +19,18 @@
             android:id="@+id/tvTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="sans-serif-black"
+            android:fontFamily="@font/manrope_heading"
             android:text="@string/clean_setup_title"
             android:textColor="@color/clean_text_primary"
-            android:textSize="30sp"
+            android:textSize="26sp"
             android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/tvInstructions"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:fontFamily="sans-serif-medium"
-            android:lineSpacingExtra="2dp"
-            android:text="@string/setup_instructions_clean"
-            android:textColor="@color/clean_text_secondary"
-            android:textSize="15sp" />
+        <TextView android:id="@+id/tvInstructions" android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
+            android:layout_marginTop="16dp"
             android:background="@drawable/clean_card_background"
             android:elevation="0dp"
             android:orientation="vertical"
@@ -49,7 +40,7 @@
                 android:id="@+id/tvCityLabel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="@font/golos_label"
                 android:text="@string/clean_city_label"
                 android:textColor="@color/clean_text_primary"
                 android:textSize="15sp"
@@ -61,32 +52,24 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:background="@drawable/clean_input_background"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="@font/golos_label"
                 android:hint="@string/city_hint"
                 android:inputType="textCapWords"
-                android:minHeight="60dp"
+                android:minHeight="50dp"
                 android:paddingHorizontal="16dp"
-                android:paddingVertical="14dp"
+                android:paddingVertical="8dp"
                 android:textColor="@color/clean_text_primary"
                 android:textCursorDrawable="@null"
                 android:textColorHint="@color/clean_text_secondary" />
 
-            <TextView
-                android:id="@+id/tvHint"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:fontFamily="sans-serif"
-                android:text="@string/clean_setup_hint"
-                android:textColor="@color/clean_text_secondary"
-                android:textSize="14sp" />
+
 
             <TextView
                 android:id="@+id/tvDeviceMode"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
-                android:fontFamily="sans-serif-medium"
+                android:fontFamily="@font/golos_label"
                 android:text="@string/device_mode_label"
                 android:textColor="@color/clean_text_primary"
                 android:textSize="16sp" />
@@ -118,7 +101,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="22dp"
                 android:background="@drawable/clean_button_primary"
-                android:fontFamily="sans-serif-black"
+                android:fontFamily="@font/manrope_heading"
                 android:minHeight="58dp"
                 android:text="@string/clean_save_button"
                 android:textAllCaps="false"

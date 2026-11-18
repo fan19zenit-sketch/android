@@ -1,7 +1,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
     android:background="@color/clean_surface" android:orientation="vertical"
-    android:paddingHorizontal="20dp" android:paddingTop="20dp" android:paddingBottom="12dp">
+    android:paddingHorizontal="20dp" android:paddingTop="6dp" android:paddingBottom="4dp">
     <include layout="@layout/history_heading_filters" />
     <TextView android:id="@+id/tvEmpty" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:padding="30dp" android:gravity="center" android:text="@string/history_empty"
@@ -9,5 +9,4 @@
     <androidx.recyclerview.widget.RecyclerView android:id="@+id/recyclerHistory"
         android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
         android:layout_marginTop="8dp" android:clipToPadding="false" android:paddingBottom="12dp" />
-    <include layout="@layout/history_actions" />
 </LinearLayout>

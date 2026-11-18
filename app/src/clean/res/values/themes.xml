@@ -9,7 +9,10 @@
         <item name="android:navigationBarColor">@color/clean_black</item>
         <item name="android:windowBackground">@color/clean_surface</item>
         <item name="colorOnSecondary">@android:color/white</item>
-        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:fontFamily">@font/golos_body</item>
+        <item name="fontFamily">@font/golos_body</item>
+        <item name="sushiHeadingFont">@font/manrope_heading</item>
+        <item name="sushiLabelFont">@font/golos_label</item>
     </style>
     <style name="Theme.SimplePhotoUploader.NoActionBar" parent="Theme.SimplePhotoUploader" />
 </resources>

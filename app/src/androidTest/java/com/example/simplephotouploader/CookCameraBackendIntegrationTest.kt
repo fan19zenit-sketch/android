@@ -194,7 +194,7 @@ class CookCameraBackendIntegrationTest {
         }.getOrDefault(false)
         fun onCameraAuthor(name: String) {
             await { runCatching {
-                onView(allOf(withId(R.id.cookNext), withText("Следующее фото: $name"))).check(matches(isDisplayed())); true
+                onView(withText(name)).check(matches(androidx.test.espresso.matcher.ViewMatchers.withParent(androidx.test.espresso.matcher.ViewMatchers.isSelected()))); true
             }.getOrDefault(false) }
         }
         fun author(raw: String) = JSONObject(raw).getJSONObject("cookRef").getString("id")

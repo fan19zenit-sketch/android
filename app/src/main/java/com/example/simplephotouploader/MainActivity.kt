@@ -12,6 +12,7 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.widget.doAfterTextChanged
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -55,7 +56,15 @@ class MainActivity : AppCompatActivity() {
     private var botRosterCapabilityChecked = false
     private var cookPanelKey = ""
     private val shiftForm = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == RESULT_OK) refreshCookWorkflow()
+        if (it.resultCode == RESULT_OK) {
+            val data = it.data
+            val employee = data?.getStringExtra("author_id")
+            val snapshot = usableShift(scopedBinding(), Instant.now())
+            if (employee != null && snapshot != null && snapshot.shift.id == data.getStringExtra("shift_id") &&
+                snapshot.shift.revision == data.getIntExtra("revision", -1) && employee in authorCandidates(snapshot))
+                selectCurrentAuthor(snapshot, employee)
+            refreshCookWorkflow()
+        }
     }
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         if (it) {
@@ -70,6 +79,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         previewView = findViewById(R.id.previewView)
         statusText = findViewById(R.id.statusText)
+        if (BuildConfig.FLAVOR == "clean") statusText.doAfterTextChanged {
+            statusText.visibility = if (it.isNullOrEmpty() || it.toString() == getString(R.string.camera_ready)) View.GONE else View.VISIBLE
+        }
         captureButton = findViewById(R.id.captureButton)
         settingsButton = findViewById(R.id.settingsButton)
         if (BuildConfig.FLAVOR == "clean") {
@@ -380,7 +392,20 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.close, null).show()
     }
 
+    private fun authorCandidates(snapshot: CachedCookShift) = (snapshot.shift.cooks +
+        if (operatorPhotoAuthorEnabled && !isPizzaPhone()) snapshot.shift.operators else emptyList()).distinct()
+        .filter { id -> snapshot.employees.any { it.id == id && !CookEmployeeLabels.ambiguous(it, snapshot.employees) } }
+
     private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java).apply {
+        val snapshot = usableShift(scopedBinding(), Instant.now())
+        if (snapshot != null && !needsRosterReview() && !isPizzaPhone()) {
+            val ids = authorCandidates(snapshot)
+            putExtra("author_ids", ids.toTypedArray())
+            putExtra("author_names", ids.map { id -> CookEmployeeLabels.label(snapshot.employees.first { it.id == id }, snapshot.employees) }.toTypedArray())
+            putExtra("current_author", cookSelection.persistentAuthor() ?: snapshot.shift.mainCookId)
+            putExtra("shift_id", snapshot.shift.id)
+            putExtra("revision", snapshot.shift.revision)
+        }
         if (BuildConfig.BUILD_TYPE == "preview" && intent.getBooleanExtra("presentation_names", false)) {
             putExtra("presentation_names", true)
         }
@@ -618,7 +643,6 @@ class MainActivity : AppCompatActivity() {
             visibility = panel.visibility; setOnClickListener { openShift() }
         }
         if (!cookMode) return
-        val next = findViewById<TextView>(R.id.cookNext)
         val choices = findViewById<LinearLayout>(R.id.cookChoices)
         val binding = scopedBinding()
         val snapshot = usableShift(binding, Instant.now())
@@ -630,33 +654,22 @@ class MainActivity : AppCompatActivity() {
         if (key == cookPanelKey) { maybePromptForShift(); return }
         cookPanelKey = key
         if (review) {
-            next.text = "Состав изменился"
             choices.removeAllViews()
             choices.addView(com.google.android.material.chip.Chip(this).apply {
                 styleCookChip(this); text = "Выбрать автора"; setOnClickListener { openShift() }
             })
-            findViewById<TextView>(R.id.cookChange)?.visibility = View.GONE
             return
         }
-        val nextLabel = when (source) {
-            "explicit_unknown" -> "Следующее фото: автор неизвестен"
-            "shared" -> "Следующее фото: совместная работа"
-            else -> snapshot?.employees?.firstOrNull { it.id == selected }?.let { "Следующее фото: ${CookEmployeeLabels.label(it, snapshot.employees)}" }
-                ?: "Смена не подтверждена"
-        }
-        val selectionHint = if (selected == null) "" else if (selected == (cookSelection.persistentAuthor() ?: snapshot?.shift?.mainCookId)) "Основной" else "На 1 фото"
-        next.contentDescription = listOf(nextLabel, selectionHint).filter { it.isNotBlank() }.joinToString(", ")
-        next.text = if (snapshot?.offlineShift != null) "$nextLabel · локальная смена" else nextLabel
         choices.removeAllViews()
         val authorIds = if (snapshot == null) emptyList() else (snapshot.shift.cooks +
                 if (operatorPhotoAuthorEnabled && !isPizzaPhone()) snapshot.shift.operators else emptyList()).distinct()
-        val shown = (listOfNotNull(selected) + authorIds).distinct().take(2)
+        val shown = (listOfNotNull(cookSelection.persistentAuthor() ?: snapshot?.shift?.mainCookId, selected) + authorIds).distinct().take(2)
         if (snapshot != null) shown.forEach { id ->
             val employee = snapshot.employees.firstOrNull { it.id == id } ?: return@forEach
             val active = id == selected
             val name = CookEmployeeLabels.label(employee, snapshot.employees)
             val role = if (id == (cookSelection.persistentAuthor() ?: snapshot.shift.mainCookId)) "Основной"
-                else if (isPizzaPhone()) "До смены повара" else "На 1 фото"
+                else if (isPizzaPhone()) "До смены повара" else "1 фото"
             val tone = if (active) android.graphics.Color.BLACK else android.graphics.Color.WHITE
             val unit = resources.displayMetrics.density
             choices.addView(LinearLayout(this).apply {
@@ -664,17 +677,16 @@ class MainActivity : AppCompatActivity() {
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 val pad = (10 * unit).toInt()
                 setPadding(pad, pad / 2, pad, pad / 2)
-                minimumHeight = (52 * unit).toInt()
+                minimumHeight = (48 * unit).toInt()
                 layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = (4 * unit).toInt() }
                 background = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = resources.getDimension(R.dimen.sushi_radius)
-                    setColor(if (active) getColor(R.color.sushi_pink) else getColor(R.color.sushi_ink))
-                    setStroke((unit + .5f).toInt(), if (active) getColor(R.color.sushi_pink) else getColor(R.color.sushi_line))
+                    setColor(if (active) getColor(R.color.sushi_pink) else android.graphics.Color.rgb(39,39,39))
                 }
                 isSelected = active
                 contentDescription = listOf(name, role, if (active) "Выбран" else "").filter { it.isNotEmpty() }.joinToString(", ")
                 addView(TextView(context).apply {
-                    text = name; tag = id; textSize = 15f; setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    text = name; tag = id; textSize = 14f; sushiFont(R.attr.sushiLabelFont)
                     setTextColor(tone); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
                 })
                 addView(TextView(context).apply { text = (if (active) "✓  " else "") + role; textSize = 12f; setTextColor(tone) })
@@ -685,23 +697,11 @@ class MainActivity : AppCompatActivity() {
                     }
             })
         }
-        val changeCook = findViewById<TextView>(R.id.cookChange)
-        val candidates = if (snapshot == null || isPizzaPhone()) emptyList() else
-            (snapshot.shift.cooks + if (operatorPhotoAuthorEnabled) snapshot.shift.operators else emptyList())
-                .distinct().mapNotNull { id -> snapshot.employees.firstOrNull { it.id == id } }
-                .filterNot { CookEmployeeLabels.ambiguous(it, snapshot.employees) }
-        changeCook?.visibility = if (candidates.size > 1) View.VISIBLE else View.GONE
-        changeCook?.setOnClickListener {
-            if (snapshot != null) AlertDialog.Builder(this@MainActivity).setTitle("Кто готовит дальше?")
-                .setItems(candidates.map { CookEmployeeLabels.label(it, snapshot.employees) }.toTypedArray()) { _, index ->
-                    selectCurrentAuthor(snapshot, candidates[index].id)
-                }.show()
-        }
         if (binding?.timezone != null && !isPizzaPhone()) {
             val more = authorIds.filterNot { it in shown }.mapNotNull { id -> snapshot?.employees?.find { it.id == id } }
                 .filterNot { CookEmployeeLabels.ambiguous(it, snapshot!!.employees) }
             choices.addView(com.google.android.material.chip.Chip(this).apply {
-                styleCookChip(this); text = "Ещё"
+                styleCookChip(this); text = when (source) { "shared" -> "Совместно"; "explicit_unknown" -> "Без автора"; else -> "Ещё" }; sushiFont(R.attr.sushiLabelFont)
                 setOnClickListener {
                     val labels = more.map { CookEmployeeLabels.label(it, snapshot!!.employees) } + listOf("Совместно", "Автор неизвестен")
                     AlertDialog.Builder(this@MainActivity).setTitle("Кто приготовил").setItems(labels.toTypedArray()) { _, i ->

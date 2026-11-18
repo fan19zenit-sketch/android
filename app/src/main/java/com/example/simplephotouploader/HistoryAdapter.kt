@@ -124,6 +124,16 @@ class HistoryAdapter(
                 (item.jobId.isNullOrBlank() && !item.chatDeleted &&
                 item.status in setOf("needs_review", "error", "retrying") && File(item.photoPath).exists())) View.VISIBLE else View.GONE
             retryButton?.setOnClickListener { onRetry(item) }
+            itemView.findViewById<View>(R.id.rowActions)?.let { anchor ->
+                val retry = retryButton?.visibility == View.VISIBLE
+                anchor.visibility = if (canDeleteFromChat || retry) View.VISIBLE else View.GONE
+                anchor.setOnClickListener {
+                    androidx.appcompat.widget.PopupMenu(it.context, it).apply {
+                        if (retry) menu.add(R.string.history_retry).setOnMenuItemClickListener { onRetry(item); true }
+                        if (canDeleteFromChat) menu.add(R.string.history_delete_chat).setOnMenuItemClickListener { onDeleteFromChat(item); true }
+                    }.show()
+                }
+            }
             status.setTextColor(android.graphics.Color.parseColor(if (BuildConfig.FLAVOR == "clean") when {
                 item.status in setOf("error", "needs_review", "delivery_unknown") -> "#9B2456"
                 else -> "#343434"

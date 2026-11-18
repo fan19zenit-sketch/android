@@ -90,7 +90,7 @@ class CookShiftScreenshotTest {
         }
         try {
             fixtures.forEach { source.copyTo(File(it.photoPath), overwrite = true) }
-            ActivityScenario.launch<SetupActivity>(Intent(context, SetupActivity::class.java).putExtra(SetupActivity.EXTRA_FORCE_EDIT,true)).use { save("10-setup") }
+            ActivityScenario.launch<SetupActivity>(Intent(context, SetupActivity::class.java).putExtra(SetupActivity.EXTRA_FORCE_EDIT,true)).use { androidx.test.espresso.Espresso.closeSoftKeyboard(); save("10-setup") }
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 waitFor(firstName)
                 if (args.getString("check_landscape") == "true") scenario.onActivity {
@@ -100,18 +100,39 @@ class CookShiftScreenshotTest {
                 var ready = false
                 while (!ready && SystemClock.elapsedRealtime() < limit) {
                     scenario.onActivity { ready = it.findViewById<android.view.View>(R.id.captureButton).isEnabled &&
-                        it.findViewById<android.widget.TextView>(R.id.statusText).text == context.getString(R.string.camera_ready) }
+                        it.findViewById<android.widget.TextView>(R.id.statusText).text.toString() == context.getString(R.string.camera_ready) }
                     SystemClock.sleep(100)
                 }
-                check(ready) { "The camera must be ready before recording its appearance" }; save("11-camera")
+                check(ready) { "The camera must be ready before recording its appearance" }
+                scenario.onActivity { activity ->
+                    val preview = activity.findViewById<android.view.View>(R.id.previewView)
+                    val content = activity.findViewById<android.view.View>(android.R.id.content)
+                    val shutter = activity.findViewById<android.view.View>(R.id.captureButton)
+                    check(shutter.width == shutter.height)
+                    check(activity.findViewById<android.view.View>(R.id.statusText).visibility == android.view.View.GONE)
+                    val portrait = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+                    val fraction = preview.height.toDouble() / content.height
+                    val bottom = (activity.findViewById<android.view.View>(R.id.cookPanel).parent as android.view.View).height / activity.resources.displayMetrics.density
+                    android.util.Log.i("DesignMetrics", "preview fraction=$fraction bottom=$bottom dp")
+                    if (portrait && activity.resources.configuration.fontScale <= 1.0f) check(fraction >= 0.70)
+                }
+                save("11-camera")
                 onView(withText("Петрова Анна")).perform(click()); save("12-one-shot")
                 onView(withText("Ещё")).perform(click()); save("13-other-authors")
+                onView(withText("Совместно")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); save("13b-shared")
+                onView(withText("Совместно")).perform(click())
+                onView(withText("Автор неизвестен")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); save("13c-unknown")
+                onView(withText("Смена")).perform(click()); waitFor("Основной автор на телефоне"); save("11c-change")
+                onView(withText("Основной автор на телефоне")).perform(click()); save("11d-persistent")
+                androidx.test.espresso.Espresso.pressBack(); androidx.test.espresso.Espresso.pressBack()
             }
             fixtures.forEach(dao::insert)
             ActivityScenario.launch(HistoryActivity::class.java).use {
                 waitFor("История"); save("14-history")
                 onView(withText("Проверить")).perform(click()); save("15-attention")
+                onView(androidx.test.espresso.matcher.ViewMatchers.withId(R.id.rowActions)).perform(click()); save("15b-retry"); androidx.test.espresso.Espresso.pressBack()
                 onView(withText("В пути")).perform(click()); waitFor("В очереди"); save("16-queue")
+                onView(androidx.test.espresso.matcher.ViewMatchers.withId(R.id.historyMenu)).perform(click()); save("16b-menu")
                 val support = onView(androidx.test.espresso.matcher.ViewMatchers.withId(R.id.btnSupport))
                 if (context.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
                     support.perform(scrollTo())
@@ -159,7 +180,7 @@ class CookShiftScreenshotTest {
         ActivityScenario.launch<CookShiftActivity>(intent).use {
             waitFor("Сколько поваров сегодня?"); choose("2"); save("07-pizza-count")
             next()
-            waitFor("Выберите повара 1"); choose("Иванов Иван"); save("08-pizza-person")
+            waitFor("Выберите повара 1"); choose("Иванов Иван"); save("08-pizza-person"); next(); waitFor("Выберите повара 2"); choose("Петрова Анна"); save("08b-pizza-second"); next(); waitFor("Проверьте состав"); save("08c-pizza-confirm")
         }
     }
 }
