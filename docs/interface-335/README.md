@@ -1,6 +1,6 @@
 # Фото в чистоту 3.3.5: интерфейс и карта
 
-[Открыть карту с первого раздела](https://miro.com/app/board/uXjVEMrZVUo=/?moveToWidget=3458764690787555155&cot=14) · [Черновой PR #4](https://github.com/fan19zenit-sketch/android/pull/4) · [Референс](reference.png) · [Четыре экрана рядом](overview.png).
+Скриншоты ниже относятся к 3.3.5. [Текущая пошаговая карта с выбора города](https://miro.com/app/board/uXjVEMrZVUo=/?moveToWidget=3458764690826872748) · [Черновой PR #4](https://github.com/fan19zenit-sketch/android/pull/4) · [Референс](reference.png) · [Четыре экрана рядом](overview.png).
 
 ## Что именно показано
 
