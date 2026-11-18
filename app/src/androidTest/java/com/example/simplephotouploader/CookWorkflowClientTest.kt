@@ -50,6 +50,80 @@ class CookWorkflowClientTest {
         assertTrue(client.capabilities("device-a")!!.shiftPresence)
     }
 
+    @Test fun assistantsRequireCapabilityAndExactAcknowledgement() {
+        val shift = CookShift("shift", 0, "branch", "2026-11-05", "Europe/Moscow",
+            "2026-11-05T11:00:00+03:00", listOf("cook"), listOf("operator"), "cook", listOf("helper"))
+        var posts = 0
+        val oldServer = CookWorkflowClient("https://example.test") { request ->
+            if (request.url.encodedPath == "/cook-v2/shifts") posts++
+            response(request, 200, """{"schemaVersion":1,"roster":true,"shift":true,"photoContext":true}""")
+        }
+        try { oldServer.confirmShift("device", "request", shift); fail("Old server must not accept helpers silently") }
+        catch (_: CookApiProtocolException) { }
+        assertEquals(0, posts)
+        val newServer = CookWorkflowClient("https://example.test") { request ->
+            when (request.url.encodedPath) {
+                "/cook-v2/capabilities" -> response(request, 200,
+                    """{"schemaVersion":1,"roster":true,"shift":true,"photoContext":true,"shiftAssistants":true}""")
+                "/cook-v2/shifts" -> {
+                    val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                    assertEquals("helper", body.getJSONArray("assistants").getString(0))
+                    response(request, 200, """{"shiftId":"shift","shiftRevision":1,"assistants":["helper"]}""")
+                }
+                else -> throw AssertionError(request.url.encodedPath)
+            }
+        }
+        assertEquals("shift" to 1, newServer.confirmShift("device", "request", shift))
+    }
+
+    @Test fun branchTemplateValidatesScopeAndDoesNotChoosePhoneMainCook() {
+        var body = """{"branchRef":"branch","shift":{"branchRef":"branch","operationalDate":"2026-11-17","timezone":"Europe/Moscow","revision":2,"staffCount":2,"operators":["operator"],"cooks":["cook"],"assistants":[]}}"""
+        val client = CookWorkflowClient("https://example.test") { request ->
+            assertEquals("/cook-v2/branch-shift", request.url.encodedPath)
+            assertEquals("device-a", request.url.queryParameter("deviceUuid"))
+            response(request, 200, body)
+        }
+        val binding = CookBinding("branch", 1, "Europe/Moscow")
+        val template = client.branchShift("device-a", "2026-11-17", binding)!!
+        assertEquals(listOf("operator"), template.operators)
+        assertEquals(listOf("cook"), template.cooks)
+        assertEquals(2, template.revision)
+        body = """{"branchRef":"other","shift":null}"""
+        try { client.branchShift("device-a", "2026-11-17", binding); fail("Wrong branch accepted") }
+        catch (_: CookApiProtocolException) { }
+        body = """{"branchRef":"branch"}"""
+        try { client.branchShift("device-a", "2026-11-17", binding); fail("Missing shift state accepted") }
+        catch (_: CookApiProtocolException) { }
+    }
+
+    @Test fun employeeVisibilityRequiresExactBranchAndAcknowledgement() {
+        var hidden = true
+        var wrongAck = false
+        val client = CookWorkflowClient("https://example.test") { request ->
+            when (request.url.encodedPath) {
+                "/cook-v2/employees/visibility" -> {
+                    val body = JSONObject(Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                    assertEquals("branch", body.getString("branchRef"))
+                    assertEquals(3, body.getInt("bindingRevision"))
+                    hidden = body.getBoolean("hidden")
+                    response(request, 200, """{"branchRef":"branch","employeeId":"${if (wrongAck) "other" else "person"}","hidden":$hidden}""")
+                }
+                "/cook-v2/employees/hidden" -> response(request, 200,
+                    """{"branchRef":"branch","employees":[{"employeeId":"person","displayName":"Повар"}]}""")
+                else -> throw AssertionError(request.url.encodedPath)
+            }
+        }
+        val binding = CookBinding("branch", 3, "Europe/Moscow")
+        client.setEmployeeHidden("device", binding, "person", true)
+        assertTrue(hidden)
+        assertEquals("person", client.hiddenEmployees("device", binding).single().id)
+        client.setEmployeeHidden("device", binding, "person", false)
+        assertFalse(hidden)
+        wrongAck = true
+        try { client.setEmployeeHidden("device", binding, "person", true); fail("Wrong employee acknowledged") }
+        catch (_: CookApiProtocolException) { }
+    }
+
     @Test fun rosterAndManualCreationUseCorrectScopedEndpoints() {
         val paths = mutableListOf<String>()
         val client = CookWorkflowClient("https://example.test") { request ->

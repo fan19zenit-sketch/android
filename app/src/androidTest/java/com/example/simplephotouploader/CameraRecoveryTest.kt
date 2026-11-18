@@ -26,6 +26,9 @@ class CameraRecoveryTest {
             .putString(AppPrefs.KEY_BACKEND_URL, "http://127.0.0.1:9").commit()
         RemoteSupport.prefs(context).edit().clear().commit()
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.CAMERA)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            instrumentation.uiAutomation.grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        }
         val dao = PilotDatabase.get(context).photoRecordDao()
         val before = dao.getAllHistory().map { it.id }.toSet()
         try {
@@ -33,7 +36,8 @@ class CameraRecoveryTest {
                 var ready = false
                 val initialization = SystemClock.elapsedRealtime() + 15000
                 while (!ready && SystemClock.elapsedRealtime() < initialization) {
-                    scenario.onActivity { ready = it.findViewById<View>(R.id.captureButton).isEnabled }
+                    scenario.onActivity { ready = it.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED &&
+                        it.findViewById<View>(R.id.captureButton).isEnabled }
                     Thread.sleep(100)
                 }
                 assertTrue(ready)

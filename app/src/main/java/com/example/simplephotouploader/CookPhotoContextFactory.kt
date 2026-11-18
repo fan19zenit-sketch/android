@@ -41,7 +41,8 @@ object CookPhotoContextFactory {
         require(!OffsetDateTime.parse(shift.confirmedAt).toInstant().isAfter(capturedAt))
         require(selectionSource in setOf("main_default", "one_shot", "explicit_unknown", "shared"))
         if (selectionSource in setOf("main_default", "one_shot")) {
-            require(employee != null && employee.id in shift.cooks && employee.displayName.isNotBlank())
+            require(employee != null && (employee.id in shift.cooks ||
+                (selectionSource == "one_shot" && employee.id in shift.operators)) && employee.displayName.isNotBlank())
             require(selectionSource != "main_default" || employee.id == shift.mainCookId)
             require(selectionSource != "one_shot" || employee.id != shift.mainCookId)
         } else {
@@ -78,9 +79,13 @@ object CookPhotoContextFactory {
         val cooks = JSONArray(shift.cooksJson).let { array ->
             (0 until array.length()).map { ref(array.getJSONObject(it)) }
         }
+        val operators = JSONArray(shift.operatorsJson).let { array ->
+            (0 until array.length()).map { ref(array.getJSONObject(it)) }
+        }
         val main = ref(JSONObject(shift.mainCookJson))
         if (selectionSource in setOf("main_default", "one_shot")) {
-            require(employee != null && selectedRef != null && selectedRef in cooks)
+            require(employee != null && selectedRef != null &&
+                (selectedRef in cooks || (selectionSource == "one_shot" && selectedRef in operators)))
             require(employee.id == selectedRef.id && employee.displayName.isNotBlank())
             require(selectionSource != "main_default" || selectedRef == main)
             require(selectionSource != "one_shot" || selectedRef != main)

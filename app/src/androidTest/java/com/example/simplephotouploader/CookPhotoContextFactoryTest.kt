@@ -33,6 +33,15 @@ class CookPhotoContextFactoryTest {
         assertEquals(2, next.getInt("bindingRevision"))
     }
 
+    @Test fun operatorCanBeOneShotButNotTheDefaultCook() {
+        val operator = CookEmployee("operator", "Оператор", listOf("operator"))
+        val operatorPhoto = JSONObject(CookPhotoContextFactory.create(binding, binding, shift, operator, "one_shot", time))
+        val nextPhoto = JSONObject(CookPhotoContextFactory.create(binding, binding, shift, cook, "main_default", time))
+        assertEquals("operator", operatorPhoto.getJSONObject("cookRef").getString("id"))
+        assertEquals("cook", nextPhoto.getJSONObject("cookRef").getString("id"))
+        invalid { CookPhotoContextFactory.create(binding, binding, shift, operator, "main_default", time) }
+    }
+
     @Test fun confirmedShiftWithoutOperatorsStillAttributesPhotoToCook() {
         val result = JSONObject(CookPhotoContextFactory.create(binding, binding,
             shift.copy(operators = emptyList()), cook, "main_default", time))
@@ -97,6 +106,11 @@ class CookPhotoContextFactoryTest {
         val oneShot = JSONObject(CookPhotoContextFactory.createProvisional(scope, offline, second,
             CookOfflineRef("employee", "second"), "one_shot", time))
         assertEquals("second", oneShot.getJSONObject("cookRef").getString("id"))
+        val operator = CookEmployee("operator", "Оператор", listOf("operator"))
+        val offlineOperator = CookOfflineSelectionCache.cookRef(offline, "operator")
+        val operatorPhoto = JSONObject(CookPhotoContextFactory.createProvisional(scope, offline, operator,
+            offlineOperator, "one_shot", time))
+        assertEquals("operator", operatorPhoto.getJSONObject("cookRef").getString("id"))
         invalid { CookPhotoContextFactory.createProvisional(scope.copy(deviceUuid = "other"), offline, first, selected, "main_default", time) }
         invalid { CookPhotoContextFactory.createProvisional(scope.copy(binding = binding.copy(revision = 3)), offline, first, selected, "main_default", time) }
         invalid { CookPhotoContextFactory.createProvisional(scope, offline, first, selected, "main_default", time.plusSeconds(86400)) }

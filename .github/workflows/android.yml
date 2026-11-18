@@ -17,7 +17,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Test and build preview
-        run: bash gradlew :app:testCleanDebugUnitTest :app:lintCleanDebug :app:assembleCleanPreview :app:assembleCleanRelease --no-daemon
+        run: >
+          bash gradlew --no-daemon --max-workers=1
+          '-Dorg.gradle.jvmargs=-Xmx2500m -Dfile.encoding=UTF-8'
+          -Pkotlin.compiler.execution.strategy=in-process
+          :app:testCleanDebugUnitTest :app:lintCleanDebug :app:assembleCleanPreview :app:assembleCleanRelease
       - name: Verify 16 KB native compatibility
         run: python3 tools/check_apk_alignment.py app/build/outputs/apk/clean/release/app-clean-release-unsigned.apk
       - uses: actions/setup-python@v5

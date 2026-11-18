@@ -1,0 +1,16 @@
+<resources>
+    <color name="sushi_ink">#000000</color>
+    <color name="sushi_paper">#FFFAF4</color>
+    <color name="sushi_pink">#F975B1</color>
+    <color name="sushi_rose">#FF8FBD</color>
+    <color name="sushi_mint">#00CAAB</color>
+    <color name="sushi_line">#D2C7BE</color>
+    <color name="sushi_muted">#5C524C</color>
+    <dimen name="sushi_gutter">18dp</dimen>
+    <dimen name="sushi_radius">14dp</dimen>
+    <item name="shiftShortcut" type="id" />
+    <attr name="sushiHeadingFont" format="reference" />
+    <attr name="sushiLabelFont" format="reference" />
+    <item name="historyMenu" type="id" />
+    <item name="rowActions" type="id" />
+</resources>

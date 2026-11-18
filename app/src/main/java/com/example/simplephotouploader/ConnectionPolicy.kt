@@ -19,8 +19,8 @@ object ConnectionPolicy {
         val path = suffix.substringBefore('?')
         val parsed = url.toHttpUrlOrNull() ?: return listOf(url)
         val expectedQuery = when (path) {
-            "/cook-v2/employees", "/cook-v2/binding" -> setOf("deviceUuid")
-            "/cook-v2/shifts" -> setOf("deviceUuid", "operationalDate")
+            "/cook-v2/employees", "/cook-v2/employees/hidden", "/cook-v2/binding" -> setOf("deviceUuid")
+            "/cook-v2/shifts", "/cook-v2/branch-shift" -> setOf("deviceUuid", "operationalDate")
             else -> emptySet()
         }
         val queryAllowed = if (method == "GET" && expectedQuery.isNotEmpty())
@@ -29,9 +29,10 @@ object ConnectionPolicy {
         val job = "/upload-jobs/[0-9a-fA-F-]{36}"
         val allowed = queryAllowed && when (method) {
             "POST" -> path in setOf("/register-device", "/upload-v2", "/cook-v2/upload",
-                "/cook-v2/binding/initialize", "/cook-v2/employees/manual", "/cook-v2/shifts", "/cook-v2/shift-presence")
+                "/cook-v2/binding/initialize", "/cook-v2/employees/manual", "/cook-v2/employees/visibility",
+                "/cook-v2/shifts", "/cook-v2/shift-presence")
             "GET" -> Regex(job).matches(path) || path in setOf("/cook-v2/capabilities", "/cook-v2/binding",
-                "/cook-v2/employees", "/cook-v2/shifts")
+                "/cook-v2/employees", "/cook-v2/employees/hidden", "/cook-v2/shifts", "/cook-v2/branch-shift")
             "PUT" -> path == "/cook-v2/photo-context"
             "DELETE" -> Regex("$job/chat-message").matches(path)
             else -> false

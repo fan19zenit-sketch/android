@@ -15,6 +15,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(AndroidJUnit4::class)
@@ -35,9 +36,15 @@ class UploadRecoveryTest {
                 return MockResponse().setBody("""{"job_id":"recovery-job","status":"sent","message_id":"test-message"}""")
             }
         }
-        server.start()
+        if (BuildConfig.BUILD_TYPE == "localtest") {
+            server.start(InetAddress.getByName("127.0.0.1"), 18433)
+        } else {
+            server.start()
+        }
         val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
-        prefs.edit().putString(AppPrefs.KEY_BACKEND_URL, server.url("/").toString())
+        val backendUrl = if (BuildConfig.BUILD_TYPE == "localtest") "http://127.0.0.1:18433/"
+            else server.url("/").toString()
+        prefs.edit().putString(AppPrefs.KEY_BACKEND_URL, backendUrl)
             .putString(AppPrefs.KEY_DEVICE_UUID, "offline-recovery-device").commit()
         val file = File(context.cacheDir, "recovery-photo.jpg")
         file.writeBytes(byteArrayOf(1, 2, 3, 4))

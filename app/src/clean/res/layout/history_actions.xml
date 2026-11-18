@@ -1,0 +1,18 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:background="@color/clean_surface_card" android:visibility="gone">
+    <Button android:id="@+id/btnAvailableUpdate" style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent" android:layout_height="48dp" android:textAllCaps="false"
+        android:letterSpacing="0" android:visibility="gone" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="4dp">
+        <Button android:id="@+id/btnSupport" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="48dp" android:minWidth="0dp"
+            android:paddingHorizontal="8dp" android:text="@string/diagnostics_share" android:textAllCaps="false"
+            android:letterSpacing="0" />
+        <TextView android:id="@+id/versionText" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center" android:textSize="12sp" android:textColor="@color/clean_text_secondary" />
+        <Button android:id="@+id/btnChangeCity" style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="48dp" android:minWidth="0dp"
+            android:paddingHorizontal="8dp" android:text="@string/history_change_city" android:textAllCaps="false"
+            android:letterSpacing="0" android:textColor="@color/clean_text_primary" />
+    </LinearLayout>
+</LinearLayout>

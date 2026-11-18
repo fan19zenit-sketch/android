@@ -20,6 +20,10 @@ class App : Application() {
         }
         PilotDatabase.get(this)
         PhotoHistoryStore.migrateFromLegacyPrefsIfNeeded(this)
+        if (BuildConfig.FLAVOR == "clean") {
+            for (path in PilotDatabase.get(this).photoRecordDao().interruptedPaths())
+                PhotoHistoryStore.holdOrDropPreparation(this, File(path))
+        }
         if (PhotoQueueStore.hasItems(this)) PhotoUploadWorker.enqueue(this)
         if (PilotDatabase.get(this).photoRecordDao().getPendingServerRecords().isNotEmpty()) {
             UploadStatusSyncWorker.enqueue(this)

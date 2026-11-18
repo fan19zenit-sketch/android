@@ -27,6 +27,7 @@ object PhotoHistoryStore {
         val error: String?,
         val queuedInUploadQueue: Boolean,
         val photoContextAck: String? = null,
+        val captureAuthor: String? = null,
     )
 
     fun addQueued(
@@ -36,6 +37,7 @@ object PhotoHistoryStore {
         photoContext: String? = null,
         captureDeviceUuid: String? = null,
         captureBackendUrl: String? = null,
+        locallyPreparing: Boolean = false,
     ): String {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getByPhotoPath(photoPath)
@@ -44,7 +46,7 @@ object PhotoHistoryStore {
         }
 
         val id = UUID.randomUUID().toString()
-        val thumbnailPath = createThumbnail(context, photoPath, id)
+        val thumbnailPath = if (locallyPreparing) null else createThumbnail(context, photoPath, id)
         dao.insert(
             PhotoRecordEntity(
                 id = id,
@@ -55,15 +57,34 @@ object PhotoHistoryStore {
                 thumbnailPath = thumbnailPath,
                 capturedAt = capturedAt,
                 sentAt = null,
-                status = "queued",
+                status = if (locallyPreparing) "local_preparing" else "queued",
                 error = null,
-                queuedInUploadQueue = true,
+                queuedInUploadQueue = !locallyPreparing,
                 photoContext = photoContext,
                 captureDeviceUuid = captureDeviceUuid,
                 captureBackendUrl = captureBackendUrl,
             )
         )
         return id
+    }
+
+    fun finishPreparation(context: Context, path: String, id: String, holdReason: String?) {
+        val thumbnail = createThumbnail(context, path, id)
+        val updated = PilotDatabase.get(context).photoRecordDao().finishLocalPreparation(
+            path, thumbnail, holdReason, if (holdReason == null) "queued" else "needs_review", holdReason == null)
+        check(updated == 1) { "Preparation no longer owns this capture" }
+    }
+
+    fun holdOrDropPreparation(context: Context, file: File) {
+        val db = PilotDatabase.get(context)
+        db.runInTransaction {
+            val dao = db.photoRecordDao()
+            val record = dao.getByPhotoPath(file.absolutePath)
+            if (record?.status != "local_preparing") return@runInTransaction
+            if (file.length() > 0) dao.update(record.copy(status = "needs_review",
+                error = context.getString(R.string.camera_save_error)))
+            else dao.deleteByPhotoPath(file.absolutePath)
+        }
     }
 
     fun markSending(context: Context, photoPath: String) = updateByPhotoPath(context, photoPath) {
@@ -257,6 +278,14 @@ object PhotoHistoryStore {
             error = entity.error,
             queuedInUploadQueue = entity.queuedInUploadQueue,
             photoContextAck = entity.photoContextAck,
+            captureAuthor = entity.photoContext?.let { raw -> runCatching {
+                val data = org.json.JSONObject(raw)
+                when (data.optString("selectionSource")) {
+                    "shared" -> "Совместная работа"
+                    "explicit_unknown" -> "Автор неизвестен"
+                    else -> (data.opt("cookNameSnapshot") as? String)?.takeIf { it.isNotBlank() }
+                }
+            }.getOrNull() },
         )
     }
 }

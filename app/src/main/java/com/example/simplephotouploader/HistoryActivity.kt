@@ -1,7 +1,10 @@
 package com.example.simplephotouploader
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -10,6 +13,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -28,6 +32,8 @@ class HistoryActivity : AppCompatActivity() {
     private var renderJob: Job? = null
     private var scrollAfterFilter = false
     private var filter = HistoryOrder.Filter.ALL
+    private var sharingDiagnostics = false
+    private var downloadingUpdate = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,6 +41,9 @@ class HistoryActivity : AppCompatActivity() {
         filter = savedInstanceState?.getString("history_filter")?.let {
             runCatching { HistoryOrder.Filter.valueOf(it) }.getOrNull()
         } ?: HistoryOrder.Filter.ALL
+        if (BuildConfig.FLAVOR == "clean" && filter in setOf(HistoryOrder.Filter.CONFIRMED, HistoryOrder.Filter.UNCONFIRMED)) {
+            filter = HistoryOrder.Filter.ALL
+        }
 
         val backButton = findViewById<Button>(R.id.btnBack)
         val changeCityButton = findViewById<Button>(R.id.btnChangeCity)
@@ -48,9 +57,11 @@ class HistoryActivity : AppCompatActivity() {
                     .setNegativeButton(R.string.close, null)
                     .setPositiveButton(R.string.history_delete_chat) { _, _ -> deleteFromChat(entry, recycler, emptyText) }.show()
             }, onOpenPhoto = ::openPhoto, onRetry = ::retryPhoto)
+        val progressFilter = HistoryOrder.Filter.IN_PROGRESS
+        val attentionFilter = HistoryOrder.Filter.ATTENTION
+        if (BuildConfig.FLAVOR == "clean") findViewById<Button>(R.id.btnHistoryAttention).text = "Проверить"
         for ((id, value) in listOf(R.id.btnHistoryAll to HistoryOrder.Filter.ALL,
-            R.id.btnHistoryProgress to HistoryOrder.Filter.IN_PROGRESS,
-            R.id.btnHistoryAttention to HistoryOrder.Filter.ATTENTION)) {
+            R.id.btnHistoryProgress to progressFilter, R.id.btnHistoryAttention to attentionFilter)) {
             findViewById<Button>(id).setOnClickListener {
                 filter = value
                 scrollAfterFilter = true
@@ -60,10 +71,18 @@ class HistoryActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.versionText)?.text = getString(R.string.app_version, BuildConfig.VERSION_NAME)
         renderHistory(recycler, emptyText)
 
+        findViewById<android.view.View>(R.id.historyMenu)?.setOnClickListener { anchor ->
+            val panel = findViewById<Button>(R.id.btnAvailableUpdate).parent as android.view.View
+            val show = panel.visibility != android.view.View.VISIBLE
+            panel.visibility = if (show) android.view.View.VISIBLE else android.view.View.GONE
+            anchor.isSelected = show
+        }
         backButton.setOnClickListener { finish() }
         findViewById<Button>(R.id.btnSupport).setOnClickListener {
-            startActivity(Intent(this, SupportActivity::class.java))
+            if (BuildConfig.FLAVOR == "clean") shareDiagnostics()
+            else startActivity(Intent(this, SupportActivity::class.java))
         }
+        findViewById<Button>(R.id.btnAvailableUpdate).setOnClickListener { installUpdate() }
         changeCityButton.setOnClickListener {
             startActivity(Intent(this, SetupActivity::class.java).apply {
                 putExtra(SetupActivity.EXTRA_FORCE_EDIT, true)
@@ -75,6 +94,8 @@ class HistoryActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         UploadStatusSyncWorker.enqueueBurst(this)
+        if (BuildConfig.FLAVOR == "clean") RemoteSupport.schedule(this)
+        refreshUpdateButton()
         val recycler = findViewById<RecyclerView>(R.id.recyclerHistory)
         val emptyText = findViewById<TextView>(R.id.tvEmpty)
         renderHistory(recycler, emptyText)
@@ -109,7 +130,7 @@ class HistoryActivity : AppCompatActivity() {
         if (renderJob?.isActive == true) return
         renderJob = scope.launch {
             val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@HistoryActivity) }
-            val visible = items.filter { HistoryOrder.matches(filter, it.status, it.queuedInUploadQueue) }
+            val visible = items.filter { HistoryOrder.matches(filter, it.status, it.queuedInUploadQueue, it.chatDeleted) }
             if (visible != lastItems) {
                 lastItems = visible
                 val renderedFilter = filter
@@ -126,18 +147,98 @@ class HistoryActivity : AppCompatActivity() {
             emptyText.setText(if (filter == HistoryOrder.Filter.ALL) R.string.history_empty else R.string.history_filter_empty)
             emptyText.visibility = if (visible.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             val attentionCount = items.count { HistoryOrder.needsAttention(it.status) }
-            val summary = getString(R.string.history_summary,
-                items.count { it.status == "sent" && !it.chatDeleted },
-                items.count { it.queuedInUploadQueue || it.status in setOf("uploaded_to_server", "sending_to_chat") },
-                attentionCount)
+            val confirmed = items.count { HistoryOrder.matches(HistoryOrder.Filter.CONFIRMED, it.status, it.queuedInUploadQueue, it.chatDeleted) }
+            val summary = if (BuildConfig.FLAVOR == "clean") "${items.size} фото  ·  Ушло в чат: $confirmed"
+                else getString(R.string.history_summary, confirmed,
+                    items.count { it.queuedInUploadQueue || it.status in setOf("uploaded_to_server", "sending_to_chat") }, attentionCount)
             findViewById<TextView>(R.id.tvHistorySubheader)?.text = summary
-            findViewById<Button>(R.id.btnHistoryAll).isEnabled = filter != HistoryOrder.Filter.ALL
-            findViewById<Button>(R.id.btnHistoryProgress).isEnabled = filter != HistoryOrder.Filter.IN_PROGRESS
             findViewById<Button>(R.id.btnHistoryAttention).apply {
-                text = getString(R.string.history_filter_attention, attentionCount)
-                isEnabled = filter != HistoryOrder.Filter.ATTENTION
+                if (BuildConfig.FLAVOR != "clean") text = getString(R.string.history_filter_attention, attentionCount)
+            }
+            val progressFilter = HistoryOrder.Filter.IN_PROGRESS
+            val attentionFilter = HistoryOrder.Filter.ATTENTION
+            if (BuildConfig.FLAVOR == "clean") findViewById<Button>(R.id.btnHistoryProgress).text = "В пути"
+            for ((id, value) in listOf(R.id.btnHistoryAll to HistoryOrder.Filter.ALL,
+                R.id.btnHistoryProgress to progressFilter, R.id.btnHistoryAttention to attentionFilter)) {
+                findViewById<Button>(id).apply {
+                    if (BuildConfig.FLAVOR == "clean") {
+                        isEnabled = true
+                        isSelected = filter == value
+                        backgroundTintList = android.content.res.ColorStateList.valueOf(if (isSelected) android.graphics.Color.BLACK else android.graphics.Color.rgb(238, 230, 221))
+                        setTextColor(if (isSelected) android.graphics.Color.WHITE else android.graphics.Color.BLACK)
+                    } else isEnabled = filter != value
+                }
+            }
+            refreshUpdateButton()
+        }
+    }
+
+    private fun shareDiagnostics() {
+        if (sharingDiagnostics) return
+        sharingDiagnostics = true
+        findViewById<Button>(R.id.btnSupport).apply {
+            isEnabled = false
+            setText(R.string.diagnostics_preparing)
+        }
+        scope.launch {
+            try {
+                val report = withContext(Dispatchers.IO) { DiagnosticJournal.export(applicationContext) }
+                startActivity(Intent.createChooser(DiagnosticShare.intent(this@HistoryActivity, report),
+                    getString(R.string.support_share)))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                Toast.makeText(this@HistoryActivity, R.string.diagnostics_share_failed, Toast.LENGTH_LONG).show()
+            } finally {
+                sharingDiagnostics = false
+                findViewById<Button>(R.id.btnSupport).apply {
+                    isEnabled = true
+                    setText(R.string.diagnostics_share)
+                }
             }
         }
+    }
+
+    private fun refreshUpdateButton() {
+        val button = findViewById<Button>(R.id.btnAvailableUpdate)
+        val update = if (BuildConfig.FLAVOR == "clean") AppUpdater.available(this) else null
+        button.visibility = if (update != null || downloadingUpdate) android.view.View.VISIBLE else android.view.View.GONE
+        button.isEnabled = update != null && !downloadingUpdate
+        button.text = if (downloadingUpdate) getString(R.string.support_downloading)
+            else update?.let { getString(R.string.support_install, it.optString("version_name")) }.orEmpty()
+    }
+
+    private fun installUpdate() {
+        val info = AppUpdater.available(this) ?: return
+        if (downloadingUpdate) return
+        AlertDialog.Builder(this).setTitle(R.string.support_update_title).setMessage(R.string.support_update_explanation)
+            .setNegativeButton(R.string.close, null).setPositiveButton(R.string.support_continue) { _, _ ->
+                if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                    runCatching { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName"))) }.onFailure { showUpdateError() }
+                    return@setPositiveButton
+                }
+                downloadingUpdate = true
+                refreshUpdateButton()
+                scope.launch {
+                    try {
+                        val apk = withContext(Dispatchers.IO) { AppUpdater.download(this@HistoryActivity, info) }
+                        startActivity(AppUpdater.installer(this@HistoryActivity, apk))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        RemoteSupport.event(applicationContext, "update_failed")
+                        showUpdateError()
+                    } finally {
+                        downloadingUpdate = false
+                        refreshUpdateButton()
+                    }
+                }
+            }.show()
+    }
+
+    private fun showUpdateError() {
+        AlertDialog.Builder(this).setMessage(R.string.support_update_failed).setPositiveButton(R.string.close, null).show()
     }
 
     private fun retryPhoto(entry: PhotoHistoryStore.Entry) {
@@ -170,6 +271,7 @@ class HistoryActivity : AppCompatActivity() {
             putExtra(PhotoViewerActivity.EXTRA_THUMBNAIL_PATH, entry.thumbnailPath)
             putExtra(PhotoViewerActivity.EXTRA_CAPTURED_AT, entry.capturedAt)
             putExtra(PhotoViewerActivity.EXTRA_STATUS, entry.status)
+            putExtra(PhotoViewerActivity.EXTRA_CHAT_DELETED, entry.chatDeleted)
         })
     }
 

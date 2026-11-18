@@ -10,7 +10,11 @@
     <string name="clean_capture_button">Сфотографировать</string>
     <string name="clean_settings_button">История</string>
 
-    <string name="history_title">Последние отправки</string>
+    <string name="history_title">История</string>
+    <string name="history_loading">Загрузка…</string>
+    <string name="camera_issues">Есть ошибки: %1$d</string>
+    <string name="history_older_photo">Фото за прошлый день не отправлено автоматически</string>
+    <string name="history_file_missing">Файл отсутствует на телефоне</string>
     <string name="history_subtitle">Здесь видно последние фото, время и реальный этап отправки.</string>
     <string name="history_empty">Пока нет ни одного фото.</string>
     <string name="history_change_city">Сменить город</string>
@@ -26,8 +30,12 @@
     <string name="history_status_chat">Уходит в чат</string>
     <string name="history_status_retrying">Будет повтор</string>
     <string name="history_status_sent">Ушло в чат</string>
-    <string name="history_status_deleted">Удалено</string>
+    <string name="history_status_deleted">Удалено из чата</string>
     <string name="history_status_error">Ошибка</string>
     <string name="history_delete_done">Фото удалено из чата</string>
     <string name="history_delete_failed">Не удалось удалить фото из чата</string>
+    <string name="history_confirmed">Ушло в чат</string>
+    <string name="history_not_sent">Ошибка</string>
+    <string name="history_delivery_unknown">Требует проверки</string>
+    <string name="camera_city">%1$s</string>
 </resources>

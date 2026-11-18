@@ -45,6 +45,7 @@ class SetupActivity : AppCompatActivity() {
         val cityInput = findViewById<EditText>(R.id.etCity)
         val transportLabel = findViewById<TextView>(R.id.tvTransportLabel)
         val transportGroup = findViewById<RadioGroup>(R.id.rgTransport)
+        val deviceModeGroup = findViewById<RadioGroup>(R.id.rgDeviceMode)
         val maxChatLabel = findViewById<TextView>(R.id.tvMaxChatIdLabel)
         val maxChatInput = findViewById<EditText>(R.id.etMaxChatId)
         val telegramChatLabel = findViewById<TextView>(R.id.tvTelegramChatIdLabel)
@@ -58,6 +59,12 @@ class SetupActivity : AppCompatActivity() {
 
         if (isCleanApp) {
             instructions.text = getString(R.string.setup_instructions_clean)
+            findViewById<TextView>(R.id.tvDeviceMode).visibility = android.view.View.VISIBLE
+            deviceModeGroup.visibility = android.view.View.VISIBLE
+            val savedMode = prefs.getString(AppPrefs.KEY_DEVICE_MODE, null)
+            if (savedMode == AppPrefs.DEVICE_MODE_PIZZA) deviceModeGroup.check(R.id.rbDevicePizza)
+            else if (savedMode == AppPrefs.DEVICE_MODE_MAIN || !savedCity.isNullOrEmpty())
+                deviceModeGroup.check(R.id.rbDeviceMain)
         }
 
         cityInput.setText(savedCity.orEmpty())
@@ -96,7 +103,9 @@ class SetupActivity : AppCompatActivity() {
             telegramThreadInput.visibility = hidden
         }
 
-        cityInput.requestFocus()
+        if (isCleanApp && !savedCity.isNullOrEmpty()) {
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        } else cityInput.requestFocus()
 
         button.setOnClickListener {
             if (PhotoQueueStore.hasItems(this) || PilotDatabase.get(this).photoRecordDao().getPendingServerRecords().isNotEmpty()) {
@@ -104,6 +113,11 @@ class SetupActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             val city = cityInput.text.toString().trim()
+            val deviceMode = if (!isCleanApp) null else when (deviceModeGroup.checkedRadioButtonId) {
+                R.id.rbDeviceMain -> AppPrefs.DEVICE_MODE_MAIN
+                R.id.rbDevicePizza -> AppPrefs.DEVICE_MODE_PIZZA
+                else -> null
+            }
             val transportType = if (isCleanApp) {
                 null
             } else if (transportGroup.checkedRadioButtonId == R.id.rbTelegram) {
@@ -117,6 +131,10 @@ class SetupActivity : AppCompatActivity() {
 
             if (city.isEmpty()) {
                 cityInput.error = getString(R.string.enter_city_error)
+                return@setOnClickListener
+            }
+            if (isCleanApp && deviceMode == null) {
+                android.widget.Toast.makeText(this, "Выберите тип телефона", android.widget.Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             val deviceUuid = prefs.getString(AppPrefs.KEY_DEVICE_UUID, null) ?: UUID.randomUUID().toString()
@@ -141,10 +159,20 @@ class SetupActivity : AppCompatActivity() {
                 button.isEnabled = true
                 if (result.isSuccess) {
                     val registration = result.getOrThrow()
+                    val oldMode = prefs.getString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN)
+                    if (isCleanApp && oldMode != deviceMode) {
+                        val local = CookLocalSession.preferences(applicationContext)
+                        if (!local.edit().remove(CookShiftCache.KEY).remove(CookOfflineSelectionCache.KEY)
+                                .remove("current_photo_author").commit()) {
+                            cityInput.error = getString(R.string.setup_storage_error)
+                            return@launch
+                        }
+                    }
                     prefs.edit()
                         .putString(AppPrefs.KEY_BACKEND_URL, backendUrl)
                         .putString(AppPrefs.KEY_DEVICE_UUID, deviceUuid)
                         .putString(AppPrefs.KEY_CITY, registration.cityName)
+                        .apply { if (deviceMode != null) putString(AppPrefs.KEY_DEVICE_MODE, deviceMode) }
                         .putString(AppPrefs.KEY_TRANSPORT_TYPE, registration.transportType)
                         .putString(AppPrefs.KEY_MAX_CHAT_ID, registration.maxChatId)
                         .putString(AppPrefs.KEY_TELEGRAM_CHAT_ID, registration.telegramChatId)

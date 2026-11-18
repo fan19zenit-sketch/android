@@ -37,10 +37,12 @@ class PhotoViewerActivity : AppCompatActivity() {
         }
 
         val timeText = PhotoHistoryStore.formatTimestamp(capturedAt) ?: "--:--"
-        metaText.text = getString(R.string.history_item_time, timeText) + " • " + mapStatus(status)
+        val deleted = intent.getBooleanExtra(EXTRA_CHAT_DELETED, false)
+        metaText.text = getString(R.string.history_item_time, timeText) + " • " + mapStatus(status, deleted)
     }
 
-    private fun mapStatus(status: String): String {
+    private fun mapStatus(status: String, deleted: Boolean): String {
+        if (BuildConfig.FLAVOR == "clean") return getString(HistoryDisplay.status(status, deleted))
         return when (status) {
             "sent" -> getString(R.string.history_status_sent)
             "queued" -> getString(R.string.history_status_queued)
@@ -59,5 +61,6 @@ class PhotoViewerActivity : AppCompatActivity() {
         const val EXTRA_THUMBNAIL_PATH = "extra_thumbnail_path"
         const val EXTRA_CAPTURED_AT = "extra_captured_at"
         const val EXTRA_STATUS = "extra_status"
+        const val EXTRA_CHAT_DELETED = "extra_chat_deleted"
     }
 }

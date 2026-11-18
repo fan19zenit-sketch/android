@@ -6,4 +6,5 @@
     <item name="cookPanel" type="id" />
     <item name="cookNext" type="id" />
     <item name="cookChoices" type="id" />
+    <item name="cookChange" type="id" />
 </resources>

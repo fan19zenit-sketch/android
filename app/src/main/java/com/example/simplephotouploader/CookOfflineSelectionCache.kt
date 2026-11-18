@@ -67,19 +67,23 @@ class CookOfflineSelectionCache(private val preferences: SharedPreferences, priv
         }
         val cooks = memberRefs(record.cooksJson)
         val operators = memberRefs(record.operatorsJson)
+        val assistants = memberRefs(record.assistantsJson)
         val main = JSONObject(record.mainCookJson).getString("id")
         val shift = CookShift(record.provisionalId, 1, record.branchRef, record.operationalDate, record.timezone,
-            record.confirmedAt, cooks, operators, main)
+            record.confirmedAt, cooks, operators, main, assistants)
         return CachedCookShift(binding, shift, employees, record.copy(canonicalRevision = null), scope)
     }
 
     companion object {
         internal const val KEY = "offline_active_shift_v1"
         fun cookRef(record: OfflineCookShift, id: String): CookOfflineRef {
-            val refs = JSONArray(record.cooksJson)
-            val matches = (0 until refs.length()).map { refs.getJSONObject(it) }.filter { it.getString("id") == id }
+            val matches = listOf(record.cooksJson, record.operatorsJson).flatMap { raw ->
+                val refs = JSONArray(raw)
+                (0 until refs.length()).map { refs.getJSONObject(it) }
+                    .filter { it.getString("id") == id }.map { CookOfflineRef(it.getString("kind"), id) }
+            }.distinct()
             require(matches.size == 1)
-            return CookOfflineRef(matches.single().getString("kind"), id)
+            return matches.single()
         }
     }
 }

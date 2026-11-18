@@ -72,7 +72,22 @@ class HistoryAdapter(
                 subtitle.text = "${subtitle.text}\n${itemView.context.getString(R.string.history_cook_context_invalid)}"
             }
 
-            status.text = when (item.status) {
+            if (BuildConfig.FLAVOR == "clean") {
+                title.text = item.captureAuthor ?: "Автор не указан"
+                subtitle.text = listOfNotNull(PhotoHistoryStore.formatTimestamp(item.capturedAt),
+                    item.error?.takeIf { item.status in setOf("retrying", "error", "needs_review", "delivery_unknown") },
+                    when (item.photoContextAck) {
+                        "conflict" -> itemView.context.getString(R.string.history_cook_context_conflict)
+                        "invalid_context" -> itemView.context.getString(R.string.history_cook_context_invalid)
+                        else -> null
+                    }).joinToString("\n")
+                val delivered = item.status == "sent" && !item.chatDeleted
+                status.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    if (delivered) android.graphics.Color.rgb(0,202,171) else android.graphics.Color.rgb(241,232,224))
+            }
+            status.text = if (BuildConfig.FLAVOR == "clean") {
+                itemView.context.getString(HistoryDisplay.status(item.status, item.chatDeleted))
+            } else when (item.status) {
                 "sent" -> if (item.chatDeleted) {
                     itemView.context.getString(R.string.history_status_deleted)
                 } else {
@@ -109,7 +124,20 @@ class HistoryAdapter(
                 (item.jobId.isNullOrBlank() && !item.chatDeleted &&
                 item.status in setOf("needs_review", "error", "retrying") && File(item.photoPath).exists())) View.VISIBLE else View.GONE
             retryButton?.setOnClickListener { onRetry(item) }
-            status.setTextColor(android.graphics.Color.parseColor(when {
+            itemView.findViewById<View>(R.id.rowActions)?.let { anchor ->
+                val retry = retryButton?.visibility == View.VISIBLE
+                anchor.visibility = if (canDeleteFromChat || retry) View.VISIBLE else View.GONE
+                anchor.setOnClickListener {
+                    androidx.appcompat.widget.PopupMenu(it.context, it).apply {
+                        if (retry) menu.add(R.string.history_retry).setOnMenuItemClickListener { onRetry(item); true }
+                        if (canDeleteFromChat) menu.add(R.string.history_delete_chat).setOnMenuItemClickListener { onDeleteFromChat(item); true }
+                    }.show()
+                }
+            }
+            status.setTextColor(android.graphics.Color.parseColor(if (BuildConfig.FLAVOR == "clean") when {
+                item.status in setOf("error", "needs_review", "delivery_unknown") -> "#9B2456"
+                else -> "#343434"
+            } else when {
                 item.status == "sent" && !item.chatDeleted -> "#25745B"
                 item.status in setOf("error", "needs_review", "delivery_unknown") -> "#B33C4A"
                 else -> "#765725"
