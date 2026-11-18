@@ -48,7 +48,9 @@ class CookCameraFlowTest {
             automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
         }
         context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
-            .putString(AppPrefs.KEY_CITY, "Тест").remove(AppPrefs.KEY_DEVICE_UUID).remove(AppPrefs.KEY_DEVICE_MODE).commit()
+            .putString(AppPrefs.KEY_CITY, "Тест")
+            .putString(AppPrefs.KEY_DEVICE_UUID, "camera-test-" + java.util.UUID.randomUUID())
+            .remove(AppPrefs.KEY_DEVICE_MODE).commit()
         CookLocalSession.cache(context).clear()
         CookPendingShiftStore(CookLocalSession.preferences(context)).clear()
         CookLocalSession.preferences(context).edit().remove("current_photo_author").commit()
@@ -212,6 +214,7 @@ class CookCameraFlowTest {
             await { visible("Повар 1") && cameraReady() }
             context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
                 .putString(AppPrefs.KEY_DEVICE_UUID, "other-device").commit()
+            await { visible(context.getString(R.string.camera_shift_required)) && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
             await { visible("Подтвердите состав смены перед съёмкой") }
             SystemClock.sleep(500)
