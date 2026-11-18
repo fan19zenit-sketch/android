@@ -9,9 +9,44 @@ import sys
 from tempfile import TemporaryDirectory
 from threading import Thread
 import time
+from contextlib import contextmanager
 from xml.etree import ElementTree as ET
 from PIL import Image
 import check_signed_upgrade as e
+
+
+class OrientationBackend(e.Fixture):
+    max_request = 32_000_000
+    def do_GET(self):
+        if self.path == "/fixture/validation":
+            self.send_response(204)
+            self.end_headers()
+        else:
+            super().do_GET()
+
+
+@contextmanager
+def isolated_wifi(adb):
+    # Android NetworkStack's expiring localhost-only test probes. WorkManager constraints stay enabled.
+    keys = ("test_captive_portal_http_url", "test_captive_portal_https_url", "test_url_expiration_time")
+    original = {k: adb("shell", "device_config", "get", "connectivity", k) for k in keys}
+    wifi = adb("shell", "settings", "get", "global", "wifi_on") == "1"
+    try:
+        adb("shell", "svc", "wifi", "disable")
+        for k in keys[:2]:
+            adb("shell", "device_config", "put", "connectivity", k, "http://localhost:18433/fixture/validation")
+        expires = (int(adb("shell", "date", "+%s")) + 300) * 1000
+        adb("shell", "device_config", "put", "connectivity", keys[2], str(expires))
+        yield
+    finally:
+        adb("shell", "svc", "wifi", "disable")
+        for k, v in original.items():
+            if v == "null":
+                adb("shell", "device_config", "delete", "connectivity", k)
+            else:
+                adb("shell", "device_config", "put", "connectivity", k, v)
+        if wifi:
+            adb("shell", "svc", "wifi", "enable")
 
 
 def until(fn, seconds=45):
@@ -66,14 +101,16 @@ def main(source, proof):
     pkg = e.PACKAGE
     assert "versionName=3.3.7" in a("shell", "dumpsys", "package", pkg)
 
+    previous_ids = set()
     def rows():
         sql = "select id,photoPath,status from photo_records where photoPath like '%/IMG_upright_%' order by capturedAt"
-        return [s.split("|") for s in a("shell", 'sqlite3 ' + e.DB + ' "' + sql + '"').splitlines() if s]
+        return [s.split("|") for s in a("shell", 'sqlite3 ' + e.DB + ' "' + sql + '"').splitlines()
+                if s and s.split("|")[0] not in previous_ids]
 
     def start():
         a("shell", "am", "start", "-W", "-n", pkg + "/com.example.simplephotouploader.MainActivity")
 
-    with TemporaryDirectory() as temp:
+    with TemporaryDirectory() as temp, isolated_wifi(a):
         root = Path(temp)
         a("shell", "am", "force-stop", pkg)
         a("pull", e.PREFS, str(root / "previous"))
@@ -83,7 +120,7 @@ def main(source, proof):
         prefs.write(root / "fixture", encoding="utf-8", xml_declaration=True)
         uid = a("shell", "stat", "-c", "%u", e.APP_ROOT)
         auto, rot = [a("shell", "settings", "get", "system", s) for s in ("accelerometer_rotation","user_rotation")]
-        assert not rows()
+        previous_ids.update(r[0] for r in rows())
         proof.mkdir(parents=True, exist_ok=True)
         e.push_owned(root / "fixture", e.PREFS, uid)
         server = None
@@ -111,21 +148,22 @@ def main(source, proof):
             a("shell", "input", "keyevent", "KEYCODE_SLEEP")
             a("shell", "am", "force-stop", pkg)
             assert {r[0] for r in rows()} == set(originals)
-            e.Fixture.max_request = 32_000_000
-            server = ThreadingHTTPServer(("127.0.0.1",18433), e.Fixture)
+            server = ThreadingHTTPServer(("127.0.0.1",18433), OrientationBackend)
             Thread(target=server.serve_forever, daemon=True).start()
             a("reverse", "tcp:18433", "tcp:18433")
+            a("shell", "svc", "wifi", "enable")
             a("shell", "input", "keyevent", "KEYCODE_WAKEUP")
             a("shell", "wm", "dismiss-keyguard")
             start()
             until(lambda: len(e.Fixture.received) >= 4, 180)
-            until(lambda: all(r[2] == "sent" for r in rows()), 90)
             assert Counter(x[1] for x in e.Fixture.received) == Counter(originals.keys())
             for device, key, wire, _ in e.Fixture.received:
                 assert device == "orientation-fixture" and wire == originals[key].read_bytes()
                 received = root / "received.jpg"
                 received.write_bytes(wire)
                 print(originals[key].name, max_adapter(source, received))
+            until(lambda: all(r[2] == "sent" for r in rows()), 180)
+            assert Counter(x[1] for x in e.Fixture.received) == Counter(originals.keys())
             print("CAMERA_OK: four rotations, volume events, offline queue, sleep/restart, exactly-once delivery; MAX adapter bytes identical")
         finally:
             if server:
