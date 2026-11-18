@@ -344,7 +344,7 @@ class MainActivity : AppCompatActivity() {
                     camera.targetRotation = shutterRotation
                 }
                 camera.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(),
-                    ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
+                    ContextCompat.getMainExecutor(this@MainActivity), object : ImageCapture.OnImageSavedCallback {
                         override fun onError(error: ImageCaptureException) {
                             watchdog.cancel()
                             if (cleanCapture) App.ioScope.launch { PhotoHistoryStore.holdOrDropPreparation(applicationContext, file) }
