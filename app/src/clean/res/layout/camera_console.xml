@@ -14,7 +14,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:visibility="gone">
-                <LinearLayout
+                <com.example.simplephotouploader.CameraAuthorRow
                     android:id="@+id/cookChoices"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

@@ -114,6 +114,10 @@ class CookShiftScreenshotTest {
                     val heights = (0 until tiles.childCount).map { tiles.getChildAt(it) }
                         .filterIsInstance<android.widget.LinearLayout>().map { it.height }
                     check(heights.size == 3 && heights.distinct().size == 1)
+                    (0 until tiles.childCount).map { tiles.getChildAt(it) }.filterIsInstance<android.widget.LinearLayout>().forEach { tile ->
+                        val caption = tile.getChildAt(1) as android.widget.TextView
+                        check(caption.height >= caption.layout.height && caption.bottom <= tile.height - tile.paddingBottom)
+                    }
                     check(activity.findViewById<android.view.View>(R.id.statusText).visibility == android.view.View.GONE)
                     val portrait = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
                     val fraction = preview.height.toDouble() / content.height
