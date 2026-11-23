@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from contextlib import closing
+import argparse
 from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
 from email.policy import default
@@ -143,7 +144,7 @@ def choose_phone_mode(mode):
     raise RuntimeError('phone choice was not persisted for its UUID')
 
 
-def main(old_apk, candidate, pilot_mode=None):
+def main(old_apk, candidate, pilot_mode=None, preconfirmed=False):
     global SERIAL
     listed = command('adb', 'devices').splitlines()[1:]
     devices = [line.split()[0] for line in listed if line.endswith('\tdevice')]
@@ -168,10 +169,13 @@ def main(old_apk, candidate, pilot_mode=None):
     with tempfile.TemporaryDirectory(prefix='signed-upgrade-') as temp:
         root = Path(temp)
         prefs = root / 'app_prefs.xml'
+        mode_prefs = (f'<string name="device_mode">{pilot_mode}</string>\n'
+                      f'<string name="pilot_mode_confirmed_device">{DEVICE}</string>\n') if preconfirmed else ''
         prefs.write_text("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n"
                          f'<string name="backend_url">http://127.0.0.1:18433</string>\n'
                          f'<string name="city">{CITY}</string>\n<string name="device_uuid">{DEVICE}</string>\n'
-                         '<string name="transport_type">max</string>\n<string name="fixture_setting">preserve-me</string>\n</map>\n', encoding='utf8')
+                         '<string name="transport_type">max</string>\n<string name="fixture_setting">preserve-me</string>\n'
+                         + mode_prefs + '</map>\n', encoding='utf8')
         adb('shell', 'mkdir', '-p', APP_ROOT + '/shared_prefs')
         adb('shell', 'chown', f'{uid}:{uid}', APP_ROOT + '/shared_prefs')
         push_owned(prefs, PREFS, uid)
@@ -215,12 +219,17 @@ def main(old_apk, candidate, pilot_mode=None):
         for value in (CITY, DEVICE, 'preserve-me', 'http://127.0.0.1:18433'):
             if value not in saved_prefs.read_text(encoding='utf8'):
                 raise RuntimeError('branch, UUID or settings were not preserved')
+        if preconfirmed:
+            values = {item.get('name'): item.text for item in ET.parse(saved_prefs).getroot()}
+            if values.get('pilot_mode_confirmed_device') != DEVICE or values.get('device_mode') != pilot_mode:
+                raise RuntimeError('the confirmed phone mode was not preserved')
+            print('PRESERVED_PHONE_MODE:', pilot_mode)
         for item, expected_bytes in PHOTO_CONTENTS.items():
             copy = root / ('saved-' + item)
             adb('pull', APP_ROOT + '/files/' + item + '.jpg', str(copy))
             if hashlib.sha256(copy.read_bytes()).digest() != hashlib.sha256(expected_bytes).digest():
                 raise RuntimeError('fixture photo changed during installation')
-        if pilot_mode:
+        if pilot_mode and not preconfirmed:
             adb('shell', 'am', 'start', '-W', '-n', PACKAGE + '/com.example.simplephotouploader.MainActivity')
             choose_phone_mode(pilot_mode)
             adb('shell', 'am', 'force-stop', PACKAGE)
@@ -285,11 +294,16 @@ def main(old_apk, candidate, pilot_mode=None):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in (3, 4, 5) or (len(sys.argv) >= 4 and sys.argv[3] not in ('main', 'pizza')):
-        raise SystemExit('expected old and candidate signed APKs, optionally main or pizza and fixture city')
-    if len(sys.argv) >= 4:
-        CITY = sys.argv[4] if len(sys.argv) == 5 else 'Кадуй'
-        if CITY not in ('Кадуй', 'Кириллов', 'Белозерск'):
-            raise SystemExit('unexpected fixture city')
-        DEVICE += '-' + sys.argv[3]
-    main(*sys.argv[1:4])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('old_apk')
+    parser.add_argument('candidate')
+    parser.add_argument('mode', nargs='?', choices=('main', 'pizza'))
+    parser.add_argument('fixture_city', nargs='?', choices=('Кадуй', 'Кириллов', 'Белозерск', 'Шексна'))
+    parser.add_argument('--preconfirmed', action='store_true', help='preserve an already chosen phone mode')
+    args = parser.parse_args()
+    if (args.preconfirmed or args.fixture_city) and not args.mode:
+        parser.error('a phone mode is required for a configured fixture')
+    if args.mode:
+        CITY = args.fixture_city or 'Кадуй'
+        DEVICE += '-' + args.mode
+    main(args.old_apk, args.candidate, args.mode, args.preconfirmed)
