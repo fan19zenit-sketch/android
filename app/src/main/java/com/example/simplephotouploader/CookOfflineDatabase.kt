@@ -161,7 +161,8 @@ object CookOfflineValidation {
         val roles = JSONArray(value.rolesJson)
         val values = (0 until roles.length()).map { roles.getString(it) }
         require(value.name.isNotBlank() && value.name.length <= 256 && value.canonicalId == null)
-        require(values.isNotEmpty() && values.size == values.toSet().size && values.all { it in setOf("cook", "operator") })
+        require(values == listOf("trainee") ||
+            (values.isNotEmpty() && values.size == values.toSet().size && values.all { it in setOf("cook", "operator") }))
     }
 
     fun shift(value: OfflineCookShift) {

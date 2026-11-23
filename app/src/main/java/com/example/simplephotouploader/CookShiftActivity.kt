@@ -499,6 +499,12 @@ class CookShiftActivity : AppCompatActivity() {
         return "trainee" !in employee.roles || role.name.lowercase() in employee.roles
     }
 
+    private fun manualDirectoryRole(role: CookShiftWizard.Role): String = when (role) {
+        CookShiftWizard.Role.COOK, CookShiftWizard.Role.ASSISTANT -> "cook"
+        CookShiftWizard.Role.OPERATOR -> "operator"
+        CookShiftWizard.Role.TRAINEE -> "trainee"
+    }
+
     private fun pick(title: String, people: List<CookEmployee>, onNew: (() -> Unit)? = null, onPick: (CookEmployee) -> Unit) {
         val choices = people.filterNot { CookEmployeeLabels.ambiguous(it, employees) }
         if (choices.isEmpty() && onNew == null) { showError("Нет доступных сотрудников"); return }
@@ -569,39 +575,40 @@ class CookShiftActivity : AppCompatActivity() {
             Triple("Оператор", CookShiftWizard.Role.OPERATOR, 2 - shift.operators.size),
             Triple("Помощник", CookShiftWizard.Role.ASSISTANT, 2 - shift.assistants.size),
             Triple("Стажёр", CookShiftWizard.Role.TRAINEE, 3 - shift.trainees.size)).filter { it.third > 0 && (!pizzaMode || it.second == CookShiftWizard.Role.COOK) }
-        if (members.size < 10 && roles.isNotEmpty()) content.addView(action("Добавить в состав") {
-            fun choose(role: CookShiftWizard.Role) {
-                val addToShift: (CookEmployee) -> Unit = add@{ person ->
-                    val currentBinding = binding
-                    if (busy || !CookShiftPolicy.usable(shift, currentBinding, currentBinding, Instant.now())) {
-                        showError("Состав больше не действителен. Откройте смену заново.")
-                        return@add
-                    }
-                    if (person.id in members) return@add
-                    fun fill(set: MutableSet<String>, original: List<String>) { set.clear(); set.addAll(original) }
-                    fill(cooks, shift.cooks); fill(operators, shift.operators); fill(assistants, shift.assistants); fill(trainees, shift.trainees)
-                    when (role) {
-                        CookShiftWizard.Role.OPERATOR -> operators
-                        CookShiftWizard.Role.COOK -> cooks
-                        CookShiftWizard.Role.ASSISTANT -> assistants
-                        CookShiftWizard.Role.TRAINEE -> trainees
-                    }.add(person.id)
-                    selectedPeople.clear(); selectedPeople.addAll(members + person.id)
-                    mainCook = shift.mainCookId
-                    saveShift()
+        if (members.size < 10 && roles.isNotEmpty()) {
+            fun addToShift(role: CookShiftWizard.Role, person: CookEmployee) {
+                val currentBinding = binding
+                if (busy || !CookShiftPolicy.usable(shift, currentBinding, currentBinding, Instant.now())) {
+                    showError("Состав больше не действителен. Откройте смену заново.")
+                    return
                 }
-                val newEmployee = when (role) {
-                    CookShiftWizard.Role.COOK, CookShiftWizard.Role.ASSISTANT -> "cook"
-                    CookShiftWizard.Role.OPERATOR -> "operator"
-                    CookShiftWizard.Role.TRAINEE -> null
-                }
-                val openNew = newEmployee?.let { directoryRole -> { addEmployee(directoryRole, addToShift) } }
-                pick("Кто присоединился?", employees.filter { it.id !in members && (pizzaMode || eligible(it, role)) },
-                    onNew = openNew, onPick = addToShift)
+                if (person.id in members) return
+                fun fill(set: MutableSet<String>, original: List<String>) { set.clear(); set.addAll(original) }
+                fill(cooks, shift.cooks); fill(operators, shift.operators); fill(assistants, shift.assistants); fill(trainees, shift.trainees)
+                when (role) {
+                    CookShiftWizard.Role.OPERATOR -> operators
+                    CookShiftWizard.Role.COOK -> cooks
+                    CookShiftWizard.Role.ASSISTANT -> assistants
+                    CookShiftWizard.Role.TRAINEE -> trainees
+                }.add(person.id)
+                selectedPeople.clear(); selectedPeople.addAll(members + person.id)
+                mainCook = shift.mainCookId
+                saveShift()
             }
-            if (roles.size == 1) choose(roles.first().second) else AlertDialog.Builder(this).setTitle("Роль сотрудника")
-                .setItems(roles.map { it.first }.toTypedArray()) { _, i -> choose(roles[i].second) }.show()
-        }.apply { isEnabled = !busy })
+            content.addView(action("Добавить в состав") {
+                fun choose(role: CookShiftWizard.Role) =
+                    pick("Кто присоединился?", employees.filter { it.id !in members && (pizzaMode || eligible(it, role)) },
+                        onNew = { addEmployee(manualDirectoryRole(role)) { person, _ -> addToShift(role, person) } },
+                        onPick = { person -> addToShift(role, person) })
+                if (roles.size == 1) choose(roles.first().second) else AlertDialog.Builder(this).setTitle("Роль сотрудника")
+                    .setItems(roles.map { it.first }.toTypedArray()) { _, i -> choose(roles[i].second) }.show()
+            }.apply { isEnabled = !busy })
+            content.addView(action("Добавить сотрудника") {
+                addEmployee(shiftRoles = roles.map { it.first to it.second }) { person, role ->
+                    addToShift(requireNotNull(role), person)
+                }
+            }.apply { isEnabled = !busy })
+        }
         content.addView(action("К камере") { finish() })
     }
 
@@ -641,6 +648,9 @@ class CookShiftActivity : AppCompatActivity() {
                 }
             })
             content.addView(action("Добавить стажёра") { promoteTrainee(CookShiftWizard.Role.COOK) })
+            content.addView(action("Добавить сотрудника") {
+                addEmployee("cook") { person, _ -> pizzaChoice = person.id; render() }
+            })
             if (employeeVisibilityEnabled) {
                 content.addView(action("Убрать сотрудника") { hideEmployee() })
                 content.addView(action("Вернуть сотрудника") { restoreEmployee() })
@@ -778,7 +788,13 @@ class CookShiftActivity : AppCompatActivity() {
             })
             if (role == CookShiftWizard.Role.COOK || role == CookShiftWizard.Role.OPERATOR) {
                 content.addView(action("Добавить стажёра") { promoteTrainee(role) })
-            } else if (role != CookShiftWizard.Role.TRAINEE) content.addView(action("Добавить сотрудника") { addEmployee() })
+            }
+            content.addView(action("Добавить сотрудника") {
+                addEmployee(role?.let(::manualDirectoryRole)) { person, _ ->
+                    if (role == null || person.id in draft.available(role, listOf(person.id))) wizardChoice = person.id
+                    render()
+                }
+            })
             if (employeeVisibilityEnabled) {
                 content.addView(action("Убрать сотрудника") { hideEmployee() })
                 content.addView(action("Вернуть сотрудника") { restoreEmployee() })
@@ -967,22 +983,55 @@ class CookShiftActivity : AppCompatActivity() {
         }
     }
 
-    private fun addEmployee(directoryRole: String? = null, onAdded: ((CookEmployee) -> Unit)? = null) {
-        val name = EditText(this).apply { hint = "Имя сотрудника"; setSingleLine() }
+    private fun addEmployee(directoryRole: String? = null, shiftRoles: List<Pair<String, CookShiftWizard.Role>> = emptyList(),
+                            onAdded: ((CookEmployee, CookShiftWizard.Role?) -> Unit)? = null) {
+        val name = EditText(this).apply {
+            hint = if (shiftRoles.isEmpty()) "Имя сотрудника" else "Фамилия и имя"
+            setSingleLine()
+        }
         val choices = arrayOf("Повар / помощник", "Оператор")
         val selected = booleanArrayOf(true, false)
-        val builder = AlertDialog.Builder(this).setTitle(if (directoryRole == null) "Сотрудник" else "Новый сотрудник").setView(name)
-        if (directoryRole == null) {
+        var shiftRole = shiftRoles.singleOrNull()?.second
+        val title = when {
+            directoryRole == "trainee" -> "Новый стажёр"
+            directoryRole != null || shiftRoles.isNotEmpty() -> "Новый сотрудник"
+            else -> "Сотрудник"
+        }
+        val builder = AlertDialog.Builder(this).setTitle(title)
+        if (shiftRoles.isNotEmpty()) {
+            builder.setView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), 0, dp(20), 0)
+                addView(name)
+                addView(RadioGroup(this@CookShiftActivity).apply {
+                    shiftRoles.forEach { (label, role) ->
+                        addView(RadioButton(this@CookShiftActivity).apply {
+                            id = View.generateViewId()
+                            text = label
+                            isChecked = role == shiftRole
+                            setOnClickListener { shiftRole = role }
+                        })
+                    }
+                })
+            })
+            name.filters = arrayOf(android.text.InputFilter.LengthFilter(256))
+        } else if (directoryRole == null) {
+            builder.setView(name)
             builder.setMultiChoiceItems(choices, selected) { _, index, value -> selected[index] = value }
         } else {
+            builder.setView(name)
             name.filters = arrayOf(android.text.InputFilter.LengthFilter(256))
         }
         val dialog = builder.setNegativeButton("Отмена", null).setPositiveButton("Добавить", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val text = name.text.toString().trim().replace(Regex("\\s+"), " ")
-                val roles = directoryRole?.let { listOf(it) }
-                    ?: listOfNotNull("cook".takeIf { selected[0] }, "operator".takeIf { selected[1] })
+                val assignedRole = shiftRole
+                val roles = when {
+                    shiftRoles.isNotEmpty() -> listOfNotNull(assignedRole?.let(::manualDirectoryRole))
+                    directoryRole != null -> listOf(directoryRole)
+                    else -> listOfNotNull("cook".takeIf { selected[0] }, "operator".takeIf { selected[1] })
+                }
                 if (text.isBlank()) {
                     name.error = "Укажите имя сотрудника"
                     return@setOnClickListener
@@ -1031,7 +1080,7 @@ class CookShiftActivity : AppCompatActivity() {
                     busy = false
                     result.onSuccess { added ->
                         employees = employees.filterNot { it.id == added.id } + added
-                        if (onAdded != null) onAdded(added) else render()
+                        if (onAdded != null) onAdded(added, assignedRole) else render()
                     }
                         .onFailure { if (it is CancellationException) throw it else showError(it.message ?: "Не удалось добавить сотрудника") }
                 }
