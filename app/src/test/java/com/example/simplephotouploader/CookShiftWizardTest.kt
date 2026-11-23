@@ -53,8 +53,21 @@ class CookShiftWizardTest {
         assertThrows(IllegalArgumentException::class.java) { draft.selectMainCook("three") }
     }
 
+    @Test fun tenPeopleIncludeThreeDistinctTraineesAfterHelpers() {
+        val draft = CookShiftWizard(10)
+        draft.setCounts(2, 3, 2, 3)
+        repeat(2) { draft.select(operator, "op$it") }
+        repeat(3) { draft.select(cook, "cook$it") }
+        repeat(2) { draft.select(assistant, "helper$it") }
+        val intern = CookShiftWizard.Role.TRAINEE
+        assertEquals(listOf("new"), draft.available(intern, listOf("op0", "cook0", "helper0", "new")))
+        repeat(3) { draft.select(intern, "intern$it") }
+        draft.selectMainCook("cook1")
+        assertTrue(draft.isComplete())
+    }
+
     @Test fun respectsRequestedScreenLimits() {
-        assertThrows(IllegalArgumentException::class.java) { CookShiftWizard(7) }
+        assertThrows(IllegalArgumentException::class.java) { CookShiftWizard(11) }
         val draft = CookShiftWizard(6)
         assertThrows(IllegalArgumentException::class.java) { draft.setCounts(2, 5, 0) }
         assertThrows(IllegalArgumentException::class.java) { draft.setCounts(3, 3, 0) }

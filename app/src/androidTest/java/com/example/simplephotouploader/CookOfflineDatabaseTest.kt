@@ -111,7 +111,7 @@ class CookOfflineDatabaseTest {
             old.version = 1
         }
         val restored = Room.databaseBuilder(context, CookOfflineDatabase::class.java, name)
-            .addMigrations(CookOfflineDatabase.MIGRATION_1_2).allowMainThreadQueries().build()
+            .addMigrations(CookOfflineDatabase.MIGRATION_1_2, CookOfflineDatabase.MIGRATION_2_3).allowMainThreadQueries().build()
         try {
             val oldShift = shift()
             assertEquals(oldShift, restored.queue().shift(oldShift.backendUrl, oldShift.deviceUuid, oldShift.branchRef,

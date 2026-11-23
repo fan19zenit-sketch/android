@@ -282,7 +282,7 @@ object PhotoHistoryStore {
                 val data = org.json.JSONObject(raw)
                 when (data.optString("selectionSource")) {
                     "shared" -> "Совместная работа"
-                    "explicit_unknown" -> "Автор неизвестен"
+                    "explicit_unknown" -> null
                     else -> (data.opt("cookNameSnapshot") as? String)?.takeIf { it.isNotBlank() }
                 }
             }.getOrNull() },

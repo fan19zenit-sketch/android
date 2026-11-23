@@ -115,7 +115,7 @@ class CookShiftScreenshotTest {
                         .filterIsInstance<android.widget.LinearLayout>().map { it.height }
                     check(heights.size == 3 && heights.distinct().size == 1)
                     (0 until tiles.childCount).map { tiles.getChildAt(it) }.filterIsInstance<android.widget.LinearLayout>().forEach { tile ->
-                        val caption = tile.getChildAt(1) as android.widget.TextView
+                        val caption = tile.getChildAt(0) as android.widget.TextView
                         check(caption.height >= caption.layout.height && caption.bottom <= tile.height - tile.paddingBottom)
                     }
                     check(activity.findViewById<android.view.View>(R.id.statusText).visibility == android.view.View.GONE)
@@ -131,10 +131,9 @@ class CookShiftScreenshotTest {
                 onView(withText("Ещё")).perform(click()); save("13-other-authors")
                 onView(withText("Совместно")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); save("13b-shared")
                 onView(withText("Совместно")).perform(click())
-                onView(withText("Автор неизвестен")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); save("13c-unknown")
-                onView(withText("Смена")).perform(click()); waitFor("Сменить основного повара"); save("11c-change")
-                onView(withText("Сменить основного повара")).perform(click()); save("11d-persistent")
-                androidx.test.espresso.Espresso.pressBack(); androidx.test.espresso.Espresso.pressBack()
+                onView(withText("Автор неизвестен")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist()); androidx.test.espresso.Espresso.pressBack()
+                onView(withText("Смена")).perform(click()); waitFor("Кто готовит дальше?"); save("11c-change")
+                onView(withText("Петрова Анна")).perform(click()); waitFor("Петрова Анна"); save("11d-persistent")
             }
             if (args.getString("check_landscape") != "true") {
                 prefs.edit().putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_PIZZA).commit()
@@ -172,6 +171,21 @@ class CookShiftScreenshotTest {
         }
     }
 
+    @Test fun captureThreeTrainees() {
+        context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
+            .putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("presentation_names", true)
+        ActivityScenario.launch<CookShiftActivity>(intent).use {
+            waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
+            choose("6"); next(); choose("1"); next(); choose("1"); next(); choose("1"); next()
+            choose("3"); save("trainees-03-count"); next()
+            choose("Сидорова Мария"); next(); choose("Иванов Иван"); next(); choose("Петрова Анна"); next()
+            choose("Орлова Елена"); next(); choose("Зуев Денис"); next()
+            waitFor("Выберите стажёра 3"); choose("Волкова Лидия"); next()
+            waitFor("Проверьте состав"); save("trainees-03-review")
+        }
+    }
+
     @Test fun captureMainAndPizzaShiftScreens() {
         val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
         prefs.edit().putString(AppPrefs.KEY_CITY, "Шексна").putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
@@ -187,7 +201,8 @@ class CookShiftScreenshotTest {
             waitFor("Сколько операторов?"); save("02b-operator-count"); choose("1"); next()
             waitFor("Сколько поваров?"); choose("2"); save("02c-cook-count"); next()
             waitFor("Сколько помощников?"); save("02d-assistant-count"); choose("0"); next()
-            waitFor("Выберите оператора 1"); onView(withText("Добавить сотрудника")).perform(scrollTo(), click()); save("02e-add"); androidx.test.espresso.Espresso.pressBack(); choose("Сидорова Мария"); save("03-operator"); next()
+            waitFor("Сколько стажёров?"); save("02e-trainee-count"); choose("0"); next()
+            waitFor("Выберите оператора 1"); onView(withText("Добавить стажёра")).perform(scrollTo(), click()); save("02e-add"); androidx.test.espresso.Espresso.pressBack(); choose("Сидорова Мария"); save("03-operator"); next()
             waitFor("Выберите повара 1"); choose("Иванов Иван"); save("03b-first-cook"); next()
             waitFor("Выберите повара 2"); choose("Петрова Анна"); save("04-second-cook"); next()
             waitFor("Кто основной повар?"); choose("Иванов Иван"); save("05-main-cook"); next()

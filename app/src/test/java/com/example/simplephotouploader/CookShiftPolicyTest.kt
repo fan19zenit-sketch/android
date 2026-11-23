@@ -6,6 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CookShiftPolicyTest {
+    @Test fun cameraIncludesBothOnDutyTraineesWithoutPromotingThem() {
+        val team = shift.copy(trainees = listOf("trainee-a", "trainee-b"), assistants = listOf("assistant"))
+        org.junit.Assert.assertEquals(listOf("cook", "operator", "trainee-a", "trainee-b"), team.photoAuthors(true, false))
+        org.junit.Assert.assertEquals(listOf("cook", "trainee-a", "trainee-b"), team.photoAuthors(false, false))
+        org.junit.Assert.assertEquals(listOf("cook"), team.photoAuthors(true, true))
+        org.junit.Assert.assertEquals(listOf("cook"), team.cooks)
+    }
     private val binding = CookBinding("branch", 1)
     private val shift = CookShift("shift", 1, "branch", "2026-11-05", "Europe/Moscow",
         "2026-11-05T11:01:00+03:00", listOf("cook"), listOf("operator"), "cook")

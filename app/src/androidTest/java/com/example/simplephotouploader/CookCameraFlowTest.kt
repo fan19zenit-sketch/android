@@ -41,16 +41,28 @@ class CookCameraFlowTest {
         onView(withTagValue(`is`("role:$employeeId:$role" as Any))).perform(scrollTo(), click())
     }
 
+    private var originalRows: Set<String> = emptySet()
+
+    @org.junit.After fun removeOnlyPhotosCreatedByThisCameraTest() {
+        if (BuildConfig.BUILD_TYPE != "preview") return
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        dao.getAllHistory().filterNot { it.id in originalRows }.forEach { dao.deleteByPhotoPath(it.photoPath) }
+    }
+
     @Before fun prepare() {
+        require(BuildConfig.BUILD_TYPE == "preview")
+        originalRows = PilotDatabase.get(context).photoRecordDao().getAllHistory().map { it.id }.toSet()
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         automation.grantRuntimePermission(context.packageName, android.Manifest.permission.CAMERA)
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
         }
+        val device = "camera-test-" + java.util.UUID.randomUUID()
         context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
             .putString(AppPrefs.KEY_CITY, "Тест")
-            .putString(AppPrefs.KEY_DEVICE_UUID, "camera-test-" + java.util.UUID.randomUUID())
-            .remove(AppPrefs.KEY_DEVICE_MODE).commit()
+            .putString(AppPrefs.KEY_DEVICE_UUID, device)
+            .putString(AppPrefs.KEY_MODE_CONFIRMED_DEVICE, device)
+            .putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
         CookLocalSession.cache(context).clear()
         CookPendingShiftStore(CookLocalSession.preferences(context)).clear()
         CookLocalSession.preferences(context).edit().remove("current_photo_author").commit()
@@ -95,6 +107,7 @@ class CookCameraFlowTest {
         choose("1"); next()
         choose(if (twoCooks) "2" else "1"); next()
         choose("0"); next()
+        choose("0"); next()
         choose("Оператор 1"); next()
         choose("Повар 1"); next()
         if (twoCooks) {
@@ -126,6 +139,31 @@ class CookCameraFlowTest {
         }
     }
 
+    @Test fun secondTraineeFromMoreOwnsOnePhotoWithoutPromotion() {
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        startManualShift().use {
+            await { visible("Смена") }
+            onView(withText("Смена")).perform(click())
+            await { visible("Начать смену") }
+            onView(withText("Начать смену")).perform(click())
+            listOf("4", "1", "1", "0", "2", "Оператор 1", "Повар 1", "Стажёр 1", "Стажёр 2").forEach {
+                choose(it); next()
+            }
+            onView(withText("Начать смену")).perform(scrollTo(), click())
+            await { visible("Стажёр 1") && cameraReady() }
+            onView(withText("Ещё")).perform(click())
+            onView(withText("Стажёр 2")).inRoot(isDialog()).perform(click())
+            await { selectedAuthor("Стажёр 2") }
+            onView(withId(R.id.captureButton)).perform(click())
+            await { selectedAuthor("Повар 1") && cameraReady() }
+            onView(withId(R.id.captureButton)).perform(click())
+            await { dao.getAllHistory().count { it.id !in originalRows } == 2 }
+            val authors = dao.getAllHistory().filter { it.id !in originalRows }.sortedBy { it.capturedAt }
+                .map { JSONObject(it.photoContext!!).getJSONObject("cookRef").getString("id") }
+            assertEquals(listOf("trainee-2", "cook-1"), authors)
+        }
+    }
+
     @Test fun operatorOnCameraOwnsOnlyOnePhoto() {
         val dao = PilotDatabase.get(context).photoRecordDao()
         val existing = dao.getAllHistory().map { it.id }.toSet()
@@ -135,7 +173,8 @@ class CookCameraFlowTest {
             chooseShift(twoCooks = true)
             await { visible("Оператор 1") && cameraReady() }
             onView(withText("Оператор 1")).perform(click())
-            assertTrue(selectedAuthor("Оператор 1"))
+            onView(withTagValue(`is`("operator-1" as Any))).check(matches(allOf(withText("Оператор 1"),
+                androidx.test.espresso.matcher.ViewMatchers.withParent(androidx.test.espresso.matcher.ViewMatchers.isSelected()))))
             onView(withId(R.id.captureButton)).perform(click())
             await { selectedAuthor("Повар 1") && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
@@ -155,9 +194,9 @@ class CookCameraFlowTest {
             chooseShift(twoCooks = true)
             await { visible("Смена") && cameraReady() }
             onView(withText("Смена")).perform(click())
-            await { visible("Сменить основного повара") }
-            onView(withText("Сменить основного повара")).perform(click())
-            onView(withText("Повар 2")).inRoot(isDialog()).perform(click())
+            await { visible("Кто готовит дальше?") }
+            onView(withText("Начать смену")).check(doesNotExist())
+            onView(withText("Повар 2")).perform(click())
             await { selectedAuthor("Повар 2") }
             onView(withId(R.id.captureButton)).perform(click())
             await { dao.getAllHistory().count { it.id !in existing } >= 1 && cameraReady() }
@@ -187,6 +226,9 @@ class CookCameraFlowTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 await { visible("Повар 2") && cameraReady() }
+                onView(withText("Ещё")).perform(click())
+                onView(withText("Состав пицца-цеха")).inRoot(isDialog()).perform(click())
+                await { visible("Кто готовит дальше?") }
                 onView(withText("Повар 2")).perform(click())
                 await { selectedAuthor("Повар 2") }
                 assertEquals("cook-2", JSONObject(CookLocalSession.preferences(context)
@@ -211,12 +253,14 @@ class CookCameraFlowTest {
             await { visible("Смена") }
             onView(withText("Смена")).perform(click())
             chooseShift(twoCooks = false)
-            await { visible("Повар 1") && cameraReady() }
+            await { selectedAuthor("Повар 1") && cameraReady() }
             context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE).edit()
                 .putString(AppPrefs.KEY_DEVICE_UUID, "other-device").commit()
             await { visible(context.getString(R.string.camera_shift_required)) && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
-            await { visible("Подтвердите состав смены перед съёмкой") }
+            await { visible("Подтвердите состав смены перед съёмкой") || visible("Начать смену") }
+            if (visible("Подтвердите состав смены перед съёмкой")) onView(withText("Открыть смену")).inRoot(isDialog()).perform(click())
+            await { visible("Начать смену") }
             SystemClock.sleep(500)
             assertEquals(0, dao.getAllHistory().count { it.id !in existing })
         }
@@ -253,7 +297,7 @@ class CookCameraFlowTest {
             CookShift("same-name-shift", 1, binding.branchRef, now.toLocalDate().toString(), zone.id,
                 now.minusSeconds(1).toOffsetDateTime().toString(), listOf("cook-1"), listOf("operator-1"), "cook-1"), people)))
         ActivityScenario.launch(MainActivity::class.java).use {
-            await { visible("Повар 1 · уточнить имя") && cameraReady() }
+            await { selectedAuthor("Повар 1 · уточнить имя") && cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
             await { visible("У сотрудников одинаковые имена. Попросите управляющего уточнить их в справочнике.") }
             SystemClock.sleep(500)

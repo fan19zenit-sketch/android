@@ -14,7 +14,7 @@ class CookDeviceRosterCache(private val preferences: SharedPreferences) {
         ZoneId.of(requireNotNull(binding.timezone))
         require(employees.map { it.id }.distinct().size == employees.size)
         require(employees.all { it.id.isNotBlank() && it.displayName.isNotBlank() && it.roles.isNotEmpty() &&
-            it.roles.all { role -> role in setOf("cook", "operator") } })
+            it.roles.all { role -> role in setOf("cook", "operator", "trainee") } })
         val data = JSONObject().put("branch", binding.branchRef).put("revision", binding.revision)
             .put("timezone", binding.timezone).put("employees", JSONArray(employees.map { employee ->
                 JSONObject().put("id", employee.id).put("name", employee.displayName).put("roles", JSONArray(employee.roles))
@@ -42,7 +42,7 @@ class CookDeviceRosterCache(private val preferences: SharedPreferences) {
         }
         require(employees.map { it.id }.distinct().size == employees.size)
         require(employees.all { it.id.isNotBlank() && it.displayName.isNotBlank() && it.roles.isNotEmpty() &&
-            it.roles.all { role -> role in setOf("cook", "operator") } })
+            it.roles.all { role -> role in setOf("cook", "operator", "trainee") } })
         Snapshot(CookBinding(branch, revision, timezone), employees)
     } catch (_: Exception) { null } }
 

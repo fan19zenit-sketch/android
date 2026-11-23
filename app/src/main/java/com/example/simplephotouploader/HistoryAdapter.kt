@@ -73,7 +73,7 @@ class HistoryAdapter(
             }
 
             if (BuildConfig.FLAVOR == "clean") {
-                title.text = item.captureAuthor ?: "Автор не указан"
+                title.text = item.captureAuthor ?: "Фото"
                 subtitle.text = listOfNotNull(PhotoHistoryStore.formatTimestamp(item.capturedAt),
                     item.error?.takeIf { item.status in setOf("retrying", "error", "needs_review", "delivery_unknown") },
                     when (item.photoContextAck) {

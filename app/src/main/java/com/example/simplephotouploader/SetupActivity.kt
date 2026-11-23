@@ -36,7 +36,10 @@ class SetupActivity : AppCompatActivity() {
         val forceEdit = intent.getBooleanExtra(EXTRA_FORCE_EDIT, false)
         val backendUrl = AppPrefs.DEFAULT_BACKEND_URL
         val savedCity = prefs.getString(AppPrefs.KEY_CITY, null)
-        if (!forceEdit && !savedCity.isNullOrEmpty()) {
+        val savedDevice = prefs.getString(AppPrefs.KEY_DEVICE_UUID, null)
+        val modeOnly = isCleanApp && !forceEdit && AppPrefs.needsPilotModeChoice(savedCity, savedDevice,
+            prefs.getString(AppPrefs.KEY_MODE_CONFIRMED_DEVICE, null))
+        if (!modeOnly && !forceEdit && !savedCity.isNullOrEmpty()) {
             startMain()
             return
         }
@@ -62,8 +65,9 @@ class SetupActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.tvDeviceMode).visibility = android.view.View.VISIBLE
             deviceModeGroup.visibility = android.view.View.VISIBLE
             val savedMode = prefs.getString(AppPrefs.KEY_DEVICE_MODE, null)
-            if (savedMode == AppPrefs.DEVICE_MODE_PIZZA) deviceModeGroup.check(R.id.rbDevicePizza)
-            else if (savedMode == AppPrefs.DEVICE_MODE_MAIN || !savedCity.isNullOrEmpty())
+            if (modeOnly) deviceModeGroup.clearCheck()
+            else if (savedMode == AppPrefs.DEVICE_MODE_PIZZA) deviceModeGroup.check(R.id.rbDevicePizza)
+            else if (savedMode == AppPrefs.DEVICE_MODE_MAIN)
                 deviceModeGroup.check(R.id.rbDeviceMain)
         }
 
@@ -107,17 +111,38 @@ class SetupActivity : AppCompatActivity() {
             window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         } else cityInput.requestFocus()
 
+        fun selectedMode() = when (deviceModeGroup.checkedRadioButtonId) {
+            R.id.rbDeviceMain -> AppPrefs.DEVICE_MODE_MAIN
+            R.id.rbDevicePizza -> AppPrefs.DEVICE_MODE_PIZZA
+            else -> null
+        }
+        fun clearPreviousMode(mode: String?): Boolean =
+            !isCleanApp || prefs.getString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN) == mode ||
+                CookLocalSession.preferences(applicationContext).edit().remove(CookShiftCache.KEY)
+                    .remove(CookOfflineSelectionCache.KEY).remove("current_photo_author").commit()
+
+        if (modeOnly) {
+            findViewById<TextView>(R.id.tvTitle).text = savedCity
+            findViewById<TextView>(R.id.tvCityLabel).visibility = android.view.View.GONE
+            cityInput.visibility = android.view.View.GONE
+            button.setText(R.string.save_button)
+            button.isEnabled = selectedMode() != null
+            deviceModeGroup.setOnCheckedChangeListener { _, _ -> button.isEnabled = selectedMode() != null }
+            button.setOnClickListener {
+                val mode = selectedMode() ?: return@setOnClickListener
+                if (clearPreviousMode(mode) && prefs.edit().putString(AppPrefs.KEY_DEVICE_MODE, mode)
+                        .putString(AppPrefs.KEY_MODE_CONFIRMED_DEVICE, savedDevice).commit()) startMain()
+                else android.widget.Toast.makeText(this, R.string.setup_storage_error, android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
         button.setOnClickListener {
             if (PhotoQueueStore.hasItems(this) || PilotDatabase.get(this).photoRecordDao().getPendingServerRecords().isNotEmpty()) {
                 cityInput.error = getString(R.string.setup_queue_pending)
                 return@setOnClickListener
             }
             val city = cityInput.text.toString().trim()
-            val deviceMode = if (!isCleanApp) null else when (deviceModeGroup.checkedRadioButtonId) {
-                R.id.rbDeviceMain -> AppPrefs.DEVICE_MODE_MAIN
-                R.id.rbDevicePizza -> AppPrefs.DEVICE_MODE_PIZZA
-                else -> null
-            }
+            val deviceMode = if (isCleanApp) selectedMode() else null
             val transportType = if (isCleanApp) {
                 null
             } else if (transportGroup.checkedRadioButtonId == R.id.rbTelegram) {
@@ -159,20 +184,18 @@ class SetupActivity : AppCompatActivity() {
                 button.isEnabled = true
                 if (result.isSuccess) {
                     val registration = result.getOrThrow()
-                    val oldMode = prefs.getString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN)
-                    if (isCleanApp && oldMode != deviceMode) {
-                        val local = CookLocalSession.preferences(applicationContext)
-                        if (!local.edit().remove(CookShiftCache.KEY).remove(CookOfflineSelectionCache.KEY)
-                                .remove("current_photo_author").commit()) {
-                            cityInput.error = getString(R.string.setup_storage_error)
-                            return@launch
-                        }
+                    if (!clearPreviousMode(deviceMode)) {
+                        cityInput.error = getString(R.string.setup_storage_error)
+                        return@launch
                     }
                     prefs.edit()
                         .putString(AppPrefs.KEY_BACKEND_URL, backendUrl)
                         .putString(AppPrefs.KEY_DEVICE_UUID, deviceUuid)
                         .putString(AppPrefs.KEY_CITY, registration.cityName)
-                        .apply { if (deviceMode != null) putString(AppPrefs.KEY_DEVICE_MODE, deviceMode) }
+                        .apply { if (deviceMode != null) {
+                            putString(AppPrefs.KEY_DEVICE_MODE, deviceMode)
+                            putString(AppPrefs.KEY_MODE_CONFIRMED_DEVICE, deviceUuid)
+                        } }
                         .putString(AppPrefs.KEY_TRANSPORT_TYPE, registration.transportType)
                         .putString(AppPrefs.KEY_MAX_CHAT_ID, registration.maxChatId)
                         .putString(AppPrefs.KEY_TELEGRAM_CHAT_ID, registration.telegramChatId)

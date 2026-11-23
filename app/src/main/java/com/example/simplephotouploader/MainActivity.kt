@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
         captureButton = findViewById(R.id.captureButton)
         settingsButton = findViewById(R.id.settingsButton)
         if (BuildConfig.FLAVOR == "clean") {
-            cookMode = isPizzaPhone() || BuildConfig.BUILD_TYPE == "preview" ||
+            cookMode = BuildConfig.BUILD_TYPE == "preview" ||
                 CookLocalSession.preferences(applicationContext).getBoolean("workflow_enabled", false)
         }
         captureButton.isEnabled = false
@@ -103,7 +103,10 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.BUILD_TYPE == "preview" && prefs.getString(AppPrefs.KEY_CITY, null).isNullOrBlank()) {
             prefs.edit().putString(AppPrefs.KEY_CITY, getString(R.string.preview_city)).apply()
         }
-        if (prefs.getString(AppPrefs.KEY_CITY, null).isNullOrBlank()) {
+        val city = prefs.getString(AppPrefs.KEY_CITY, null)
+        if (city.isNullOrBlank() || (BuildConfig.FLAVOR == "clean" &&
+                AppPrefs.needsPilotModeChoice(city, prefs.getString(AppPrefs.KEY_DEVICE_UUID, null),
+                    prefs.getString(AppPrefs.KEY_MODE_CONFIRMED_DEVICE, null)))) {
             startActivity(Intent(this, SetupActivity::class.java))
             finish()
             return
@@ -156,7 +159,8 @@ class MainActivity : AppCompatActivity() {
                 val items = withContext(Dispatchers.IO) { PhotoHistoryStore.list(this@MainActivity) }
                 val queued = items.count { it.queuedInUploadQueue }
                 val server = items.count { it.status in setOf("uploaded_to_server", "sending_to_chat") }
-                val issues = items.count { it.status in setOf("error", "needs_review", "delivery_unknown") }
+                val legacyIssues = if (BuildConfig.FLAVOR == "clean") 0 else
+                    items.count { it.status in setOf("error", "needs_review", "delivery_unknown") }
                 val shiftSync = if (cookMode) CookLocalSession.preferences(this@MainActivity)
                     .getString(CookOfflineSyncWorker.SYNC_STATE, null) else null
                 statusText.text = when {
@@ -165,7 +169,7 @@ class MainActivity : AppCompatActivity() {
                     cookMode && !hasCaptureSelection() -> getString(R.string.camera_shift_required)
                     filesDir.usableSpace < 200L * 1024 * 1024 -> getString(R.string.camera_low_storage)
                     RemoteSupport.settings(this@MainActivity).uploadsPaused -> getString(R.string.support_paused)
-                    issues > 0 -> getString(R.string.camera_issues, issues)
+                    legacyIssues > 0 -> getString(R.string.camera_issues, legacyIssues)
                     shiftSync == "attention" -> getString(R.string.camera_shift_sync_attention)
                     queued > 0 -> getString(R.string.camera_queued, queued)
                     server > 0 -> getString(R.string.camera_server, server)
@@ -434,13 +438,12 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.close, null).show()
     }
 
-    private fun authorCandidates(snapshot: CachedCookShift) = (snapshot.shift.cooks +
-        if (operatorPhotoAuthorEnabled && !isPizzaPhone()) snapshot.shift.operators else emptyList()).distinct()
+    private fun authorCandidates(snapshot: CachedCookShift) = snapshot.shift.photoAuthors(operatorPhotoAuthorEnabled, isPizzaPhone())
         .filter { id -> snapshot.employees.any { it.id == id && !CookEmployeeLabels.ambiguous(it, snapshot.employees) } }
 
     private fun openShift() = shiftForm.launch(Intent(this, CookShiftActivity::class.java).apply {
         val snapshot = usableShift(scopedBinding(), Instant.now())
-        if (snapshot != null && !needsRosterReview() && !isPizzaPhone()) {
+        if (snapshot != null && !needsRosterReview()) {
             val ids = authorCandidates(snapshot)
             putExtra("author_ids", ids.toTypedArray())
             putExtra("author_names", ids.map { id -> CookEmployeeLabels.label(snapshot.employees.first { it.id == id }, snapshot.employees) }.toTypedArray())
@@ -521,10 +524,11 @@ class MainActivity : AppCompatActivity() {
                 template to roster.employees
             } ?: return
             if (!stillCurrent()) return
-            val participants = (template.cooks + template.operators + template.assistants).toSet()
+            val participants = (template.cooks + template.operators + template.assistants + template.trainees).toSet()
             val known = employees.associateBy { it.id }
             if (participants.any { id -> known[id]?.let { CookEmployeeLabels.ambiguous(it, employees) } != false }) return
-            val roster = (template.cooks + if (operatorPhotoAuthorEnabled) template.operators else emptyList()).toSet()
+            val updated = CookCameraRosterRefresh.withTemplate(previous.shift, template)
+            val roster = updated.photoAuthors(operatorPhotoAuthorEnabled, isPizzaPhone()).toSet()
             val main = previous.shift.mainCookId
             fun authorStillValid(): Boolean = main in template.cooks && cookSelection.canRefreshRoster(roster, main)
             if (!authorStillValid()) {
@@ -532,7 +536,6 @@ class MainActivity : AppCompatActivity() {
                 refreshCookPanel()
                 return
             }
-            val updated = CookCameraRosterRefresh.withTemplate(previous.shift, template)
             val saved = withContext(Dispatchers.IO) {
                 client.confirmShift(device.deviceUuid, CookCameraRosterRefresh.requestId(updated, template), updated, binding)
             } ?: return
@@ -572,7 +575,7 @@ class MainActivity : AppCompatActivity() {
                 val cached = CookShiftCache(local).load()
                 val roster = CookDeviceRosterCache(local).load()
                 val prefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
-                val enabled = isPizzaPhone() || preview || local.getBoolean("workflow_enabled", false)
+                val enabled = preview || local.getBoolean("workflow_enabled", false)
                 val binding = verified ?: if (local.contains(CookDeviceRosterCache.KEY)) roster?.binding else cached?.binding
                 val offline = if (binding != null && local.contains(CookOfflineSelectionCache.KEY)) {
                     runCatching {
@@ -603,8 +606,7 @@ class MainActivity : AppCompatActivity() {
                 operatorPhotoAuthorEnabled = operatorAuthor
                 unassignedSelection.clear()
                 if (candidate != null) {
-                    val allowed = (candidate.shift.cooks +
-                        if (operatorAuthor && !isPizzaPhone()) candidate.shift.operators else emptyList()).toSet()
+                    val allowed = candidate.shift.photoAuthors(operatorAuthor, isPizzaPhone()).toSet()
                     cookSelection.setRoster(allowed, candidate.shift.mainCookId)
                     savedCurrentAuthor(candidate, allowed)?.let { cookSelection.selectPersistent(it) }
                 }
@@ -626,7 +628,9 @@ class MainActivity : AppCompatActivity() {
                             val capabilities = client.capabilities(device)
                             if (capabilities?.supportsAttributedCapture != true) {
                                 unsupported = true
-                                local.edit().remove("operator_photo_author_binding").commit()
+                                local.edit().remove("operator_photo_author_binding").apply {
+                                    if (capabilities != null) putBoolean("workflow_enabled", false)
+                                }.commit()
                                 null
                             } else {
                                 val binding = client.initializeBinding(device)
@@ -678,6 +682,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun authorSurface(active: Boolean): android.graphics.drawable.Drawable {
+        val density = resources.displayMetrics.density
+        val fill = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = 13f * density
+            setColor(if (active) 0xD8442336.toInt() else 0xA21B1B1E.toInt())
+            setStroke(if (active) (1.5f * density + .5f).toInt() else 1,
+                if (active) getColor(R.color.sushi_pink) else 0x4DFFFFFF)
+        }
+        return android.graphics.drawable.InsetDrawable(fill, 0, (3 * density).toInt(), 0, (3 * density).toInt())
+    }
+
     private fun refreshCookPanel() {
         val panel = findViewById<View>(R.id.cookPanel) ?: return
         panel.visibility = if (cookMode) View.VISIBLE else View.GONE
@@ -703,12 +718,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
         choices.removeAllViews()
-        val authorIds = if (snapshot == null) emptyList() else (snapshot.shift.cooks +
-                if (operatorPhotoAuthorEnabled && !isPizzaPhone()) snapshot.shift.operators else emptyList()).distinct()
+        val authorIds = snapshot?.let(::authorCandidates).orEmpty()
         val main = cookSelection.persistentAuthor() ?: snapshot?.shift?.mainCookId
         val operators = snapshot?.shift?.operators.orEmpty().filter { it in authorIds && !isPizzaPhone() }
         // Operators stay on the camera even when several cooks are on duty.
-        val pinned = (listOfNotNull(main) + operators + listOfNotNull(selected)).distinct()
+        val pinned = (listOfNotNull(snapshot?.shift?.mainCookId) + operators + listOfNotNull(main, selected)).distinct()
         val shown = (pinned + authorIds).distinct().take(maxOf(if (operators.isEmpty()) 2 else 3, pinned.size))
         if (snapshot != null) shown.forEach { id ->
             val employee = snapshot.employees.firstOrNull { it.id == id } ?: return@forEach
@@ -717,26 +731,23 @@ class MainActivity : AppCompatActivity() {
             val role = if (id == main) "Основной"
                 else if (id in operators && !active) "Оператор"
                 else if (isPizzaPhone()) "До смены повара" else "1 фото"
-            val tone = if (active) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            val tone = android.graphics.Color.WHITE
             val unit = resources.displayMetrics.density
             choices.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
+                gravity = android.view.Gravity.CENTER
                 val pad = ((if (shown.size >= 3) 6 else 10) * unit).toInt()
-                setPadding(pad, pad / 2, pad, pad / 2)
+                setPadding(pad, (5 * unit).toInt(), pad, (5 * unit).toInt())
                 minimumHeight = (48 * unit).toInt()
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = (4 * unit).toInt() }
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = resources.getDimension(R.dimen.sushi_radius)
-                    setColor(if (active) getColor(R.color.sushi_pink) else android.graphics.Color.rgb(39,39,39))
-                }
+                background = authorSurface(active)
                 isSelected = active
                 contentDescription = listOf(name, role, if (active) "Выбран" else "").filter { it.isNotEmpty() }.joinToString(", ")
                 addView(TextView(context).apply {
-                    text = name; tag = id; textSize = 14f; sushiFont(R.attr.sushiLabelFont)
+                    text = CookEmployeeLabels.compact(employee, snapshot.employees); tag = id; textSize = 14f; sushiFont(R.attr.sushiLabelFont)
+                    gravity = android.view.Gravity.CENTER; includeFontPadding = false
                     setTextColor(tone); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
                 })
-                addView(TextView(context).apply { text = (if (active) "✓  " else "") + role; textSize = 12f; setTextColor(tone) })
                 if (authorIds.size > 1 && !CookEmployeeLabels.ambiguous(employee, snapshot.employees))
                     setOnClickListener {
                         if (isPizzaPhone()) selectCurrentAuthor(snapshot, id)
@@ -744,16 +755,29 @@ class MainActivity : AppCompatActivity() {
                     }
             })
         }
-        if (binding?.timezone != null && !isPizzaPhone()) {
+        if (binding?.timezone != null) {
             val more = authorIds.filterNot { it in shown }.mapNotNull { id -> snapshot?.employees?.find { it.id == id } }
                 .filterNot { CookEmployeeLabels.ambiguous(it, snapshot!!.employees) }
-            choices.addView(com.google.android.material.chip.Chip(this).apply {
-                styleCookChip(this); text = when (source) { "shared" -> "Совместно"; "explicit_unknown" -> "Без автора"; else -> "Ещё" }; sushiFont(R.attr.sushiLabelFont)
+            choices.addView(TextView(this).apply {
+                val density = resources.displayMetrics.density
+                text = if (source == "shared") "Совместно" else "Ещё"
+                textSize = 13f; sushiFont(R.attr.sushiLabelFont)
+                setTextColor(android.graphics.Color.WHITE)
+                gravity = android.view.Gravity.CENTER
+                minimumWidth = (48 * density).toInt(); minimumHeight = (48 * density).toInt()
+                val pad = (8 * density).toInt()
+                setPadding(pad, 0, pad, 0)
+                background = authorSurface(source == "shared")
+                isSelected = source == "shared"
                 setOnClickListener {
-                    val labels = more.map { CookEmployeeLabels.label(it, snapshot!!.employees) } + listOf("Совместно", "Автор неизвестен")
+                    val labels = more.map { CookEmployeeLabels.label(it, snapshot!!.employees) } +
+                        if (isPizzaPhone()) listOf("Состав пицца-цеха") else listOf("Совместно")
                     AlertDialog.Builder(this@MainActivity).setTitle("Кто приготовил").setItems(labels.toTypedArray()) { _, i ->
-                        if (i < more.size) cookSelection.selectOneShot(more[i].id) else {
-                            val kind = if (i == more.size) "shared" else "explicit_unknown"
+                        if (i < more.size) {
+                            if (isPizzaPhone() && snapshot != null) selectCurrentAuthor(snapshot, more[i].id)
+                            else cookSelection.selectOneShot(more[i].id)
+                        } else if (isPizzaPhone()) openShift() else {
+                            val kind = "shared"
                             if (snapshot != null) cookSelection.selectUnassigned(kind)
                             else unassignedSelection.select(kind, binding, CookLocalSession.identity(applicationContext), Instant.now())
                         }

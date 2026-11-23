@@ -28,7 +28,7 @@ class CookShiftCache(private val preferences: SharedPreferences) {
             .put("bindingTimezone", snapshot.binding.timezone ?: JSONObject.NULL)
             .put("shiftRevision", shift.revision).put("day", shift.operationalDate).put("timezone", shift.timezone)
             .put("confirmedAt", shift.confirmedAt).put("cooks", JSONArray(shift.cooks))
-            .put("operators", JSONArray(shift.operators)).put("assistants", JSONArray(shift.assistants))
+            .put("operators", JSONArray(shift.operators)).put("assistants", JSONArray(shift.assistants)).put("trainees", JSONArray(shift.trainees))
             .put("mainCook", shift.mainCookId).put("employees", employees)
         return preferences.edit().putString(KEY, data.toString()).remove(REVIEW_KEY).apply {
             if (carryAuthor) {
@@ -48,7 +48,7 @@ class CookShiftCache(private val preferences: SharedPreferences) {
             val shift = CookShift(data.getString("shiftId"), data.getInt("shiftRevision"), binding.branchRef,
                 data.getString("day"), data.getString("timezone"), data.getString("confirmedAt"),
                 strings(data.getJSONArray("cooks")), strings(data.getJSONArray("operators")), data.getString("mainCook"),
-                data.optJSONArray("assistants")?.let(::strings) ?: emptyList())
+                data.optJSONArray("assistants")?.let(::strings).orEmpty(), data.optJSONArray("trainees")?.let(::strings).orEmpty())
             val array = data.getJSONArray("employees")
             val employees = (0 until array.length()).map { index ->
                 val entry = array.getJSONObject(index)
@@ -83,11 +83,12 @@ class CookShiftCache(private val preferences: SharedPreferences) {
         val employees = snapshot.employees.associateBy { it.id }
         require(employees.size == snapshot.employees.size && employees.keys.none { it.isBlank() })
         require(snapshot.employees.all { it.displayName.isNotBlank() && it.roles.isNotEmpty() &&
-            it.roles.all { role -> role in setOf("cook", "operator") } })
+            it.roles.all { role -> role in setOf("cook", "operator", "trainee") } })
         // Roster roles are defaults; actual roles are explicitly selected for this shift.
         require(shift.cooks.all { it in employees })
         require(shift.operators.all { it in employees })
-        require(shift.assistants.all { it in employees })
+        require(shift.trainees.size <= 3 && shift.trainees.distinct() == shift.trainees && shift.trainees.none { it in shift.cooks + shift.operators + shift.assistants })
+        require((shift.assistants + shift.trainees).all { it in employees })
     }
 
     private fun strings(array: JSONArray): List<String> = (0 until array.length()).map { array.getString(it) }

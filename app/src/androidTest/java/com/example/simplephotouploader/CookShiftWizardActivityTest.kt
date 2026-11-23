@@ -82,6 +82,7 @@ class CookShiftWizardActivityTest {
             waitFor("Сколько операторов?"); choose("1"); next()
             waitFor("Сколько поваров?"); choose("1"); next()
             waitFor("Сколько помощников?"); choose("0"); next()
+            waitFor("Сколько стажёров?"); choose("0"); next()
             waitFor("Выберите оператора 1"); choose("Оператор 1"); next()
             waitFor("Выберите повара 1"); choose("Повар 1"); next()
             waitFor("Проверьте состав")
@@ -98,6 +99,76 @@ class CookShiftWizardActivityTest {
         }
     }
 
+    @Test fun traineeCanBePromotedInTheOperatorPicker() {
+        ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
+            waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
+            choose("2"); next(); choose("1"); next(); choose("1"); next(); choose("0"); next(); choose("0"); next()
+            waitFor("Выберите оператора 1")
+            onView(withText("Добавить стажёра")).perform(scrollTo(), click())
+            onView(withText("Стажёр 1")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click())
+            waitFor("Стажёр 1"); next()
+            choose("Повар 1"); next()
+            onView(withText("Оператор: Стажёр 1")).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test fun activeShiftAddsOneLateCookWithoutRestartingTheWizard() {
+        val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Europe/Moscow"))
+        val binding = CookBinding("preview", 1, now.zone.id)
+        val original = CookShift("active", 1, "preview", now.toLocalDate().toString(), now.zone.id,
+            now.minusSeconds(1).toOffsetDateTime().toString(), listOf("cook-1"), listOf("cook-1"), "cook-1")
+        val people = listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")), CookEmployee("cook-2", "Повар 2", listOf("cook")))
+        check(CookLocalSession.cache(context).save(CachedCookShift(binding, original, people)))
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("shift_id", original.id).putExtra("revision", 1)
+            .putExtra("author_ids", arrayOf("cook-1")).putExtra("author_names", arrayOf("Повар 1")).putExtra("current_author", "cook-1")
+        ActivityScenario.launch<CookShiftActivity>(intent).use {
+            waitFor("Кто готовит дальше?")
+            onView(withText("Начать смену")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+            onView(withText("Добавить в состав")).perform(click())
+            onView(withText("Повар")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click())
+            onView(withText("Повар 2")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click())
+            val deadline = SystemClock.elapsedRealtime() + 15_000
+            while (CookLocalSession.cache(context).load()?.shift?.revision == 1 && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
+            val updated = requireNotNull(CookLocalSession.cache(context).load()).shift
+            assertEquals(original.id, updated.id); assertEquals(2, updated.revision)
+            assertEquals(listOf("cook-1", "cook-2"), updated.cooks); assertEquals(original.operators, updated.operators)
+        }
+    }
+
+    @Test fun threeTraineesCanJoinAndCannotBePickedTwice() {
+        ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
+            waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
+            choose("6"); next(); choose("1"); next(); choose("1"); next(); choose("1"); next()
+            waitFor("Сколько стажёров?"); choose("3"); next()
+            choose("Оператор 1"); next(); choose("Повар 1"); next(); choose("Повар 2"); next()
+            for (n in 1..3) {
+                waitFor("Выберите стажёра $n")
+                if (n > 1) onView(withText("Стажёр " + (n - 1))).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+                choose("Стажёр $n"); next()
+            }
+            onView(withText("Начать смену")).perform(scrollTo(), click())
+            val deadline = SystemClock.elapsedRealtime() + 15_000
+            while (CookLocalSession.cache(context).load() == null && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
+            assertEquals(listOf("trainee-1", "trainee-2", "trainee-3"), requireNotNull(CookLocalSession.cache(context).load()).shift.trainees)
+        }
+    }
+
+    @Test fun traineeIsSelectedAfterHelpersAndStoredSeparately() {
+        ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
+            waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
+            choose("3"); next(); choose("1"); next(); choose("1"); next(); choose("0"); next(); choose("1"); next()
+            waitFor("Выберите оператора 1"); choose("Оператор 1"); next()
+            choose("Повар 1"); next()
+            waitFor("Выберите стажёра 1"); choose("Стажёр 1"); next()
+            onView(withText("Начать смену")).perform(scrollTo(), click())
+            val until = SystemClock.elapsedRealtime() + 15_000
+            while (CookLocalSession.cache(context).load() == null && SystemClock.elapsedRealtime() < until) SystemClock.sleep(100)
+            val shift = requireNotNull(CookLocalSession.cache(context).load()).shift
+            assertEquals(listOf("trainee-1"), shift.trainees)
+            assertEquals(listOf("cook-1"), shift.cooks)
+        }
+    }
+
     @Test fun helperIsStoredSeparatelyFromCook() {
         ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
             waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
@@ -105,6 +176,7 @@ class CookShiftWizardActivityTest {
             waitFor("Сколько операторов?"); choose("1"); next()
             waitFor("Сколько поваров?"); choose("1"); next()
             waitFor("Сколько помощников?"); choose("1"); next()
+            waitFor("Сколько стажёров?"); choose("0"); next()
             waitFor("Выберите оператора 1"); choose("Оператор 1"); next()
             waitFor("Выберите повара 1"); choose("Повар 1"); next()
             waitFor("Выберите помощника 1"); choose("Повар 2"); next()

@@ -22,7 +22,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Separate from the existing photo queue; no database is opened until requested. */
-@Database(entities = [OfflineCookEmployee::class, OfflineCookShift::class], version = 2, exportSchema = false)
+@Database(entities = [OfflineCookEmployee::class, OfflineCookShift::class], version = 3, exportSchema = false)
 abstract class CookOfflineDatabase : RoomDatabase() {
     abstract fun queue(): CookOfflineDao
 
@@ -34,9 +34,15 @@ abstract class CookOfflineDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE offline_shifts ADD COLUMN traineesJson TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+
         fun get(context: Context): CookOfflineDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, CookOfflineDatabase::class.java,
-                "cook-offline-v2-db").addMigrations(MIGRATION_1_2).build().also { instance = it }
+                "cook-offline-v2-db").addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }
@@ -60,6 +66,7 @@ data class OfflineCookShift(
     val cooksJson: String, val operatorsJson: String, val mainCookJson: String,
     val canonicalRevision: Int? = null,
     @ColumnInfo(defaultValue = "'[]'") val assistantsJson: String = "[]",
+    @ColumnInfo(defaultValue = "'[]'") val traineesJson: String = "[]",
 )
 
 @Dao
@@ -167,6 +174,8 @@ object CookOfflineValidation {
         val cooks = references(value.cooksJson)
         val operators = references(value.operatorsJson)
         val assistants = references(value.assistantsJson)
+        val trainees = references(value.traineesJson)
+        require(trainees.size <= 3 && trainees.distinct().size == trainees.size && trainees.none { it in cooks + operators + assistants })
         val main = reference(JSONObject(value.mainCookJson))
         require(cooks.isNotEmpty() && main in cooks)
         require(cooks.size == cooks.toSet().size && operators.size == operators.toSet().size &&

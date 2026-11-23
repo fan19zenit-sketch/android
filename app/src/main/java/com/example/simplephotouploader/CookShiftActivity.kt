@@ -43,6 +43,9 @@ class CookShiftActivity : AppCompatActivity() {
     private var employees: List<CookEmployee> = emptyList()
     private val cooks = linkedSetOf<String>()
     private val operators = linkedSetOf<String>()
+    private val trainees = linkedSetOf<String>()
+    private var activeEdit: CookShift? = null
+    private var traineeCount = 0
     private val assistants = linkedSetOf<String>()
     private val selectedPeople = linkedSetOf<String>()
     private var roleStage = false
@@ -137,7 +140,7 @@ class CookShiftActivity : AppCompatActivity() {
                 if (roster.branchRef != expectedBinding.branchRef) return@withContext null
                 val day = Instant.now().atZone(ZoneId.of(requireNotNull(expectedBinding.timezone))).toLocalDate().toString()
                 val template = client.branchShift(device, day, expectedBinding)
-                if (template != null && (template.cooks + template.operators + template.assistants)
+                if (template != null && (template.cooks + template.operators + template.assistants + template.trainees)
                         .any { id -> roster.employees.none { it.id == id } }) return@withContext null
                 roster to template
             }
@@ -265,13 +268,17 @@ class CookShiftActivity : AppCompatActivity() {
                         val firstRoles = if (intent.getBooleanExtra("test_universal", false)) listOf("cook", "operator") else listOf("cook")
                         val fixture = listOf(CookEmployee("cook-1", firstName, firstRoles),
                             CookEmployee("cook-2", secondName, listOf("cook")),
-                            CookEmployee("operator-1", operatorName, listOf("operator"))) +
+                            CookEmployee("operator-1", operatorName, listOf("operator")),
+                            CookEmployee("trainee-1", if (presentation) "Орлова Елена" else "Стажёр 1", listOf("trainee")),
+                            CookEmployee("trainee-2", if (presentation) "Зуев Денис" else "Стажёр 2", listOf("trainee")),
+                            CookEmployee("trainee-3", if (presentation) "Волкова Лидия" else "Стажёр 3", listOf("trainee"))) +
                             if (intent.getBooleanExtra("test_three_cooks", false))
                                 listOf(CookEmployee("cook-3", "Повар 3", listOf("cook"))) else emptyList()
                         val template = if (intent.getBooleanExtra("test_branch_template", false))
                             CookBranchShiftTemplate("preview", Instant.now().atZone(ZoneId.of("Europe/Moscow")).toLocalDate().toString(),
                                 "Europe/Moscow", 1, 3, listOf("operator-1"), listOf("cook-1", "cook-2"), emptyList()) else null
-                        LoadedRoster(CookBinding("preview", 1, "Europe/Moscow"), fixture,
+                        val opened = CookLocalSession.cache(applicationContext).load()?.takeIf { it.shift.id == intent.getStringExtra("shift_id") }
+                        LoadedRoster(opened?.binding ?: CookBinding("preview", 1, "Europe/Moscow"), (opened?.employees.orEmpty() + fixture).distinctBy { it.id },
                             intent.getBooleanExtra("test_offline", false), template)
                     } else {
                         val local = CookLocalSession.preferences(applicationContext)
@@ -291,7 +298,7 @@ class CookShiftActivity : AppCompatActivity() {
                                 val day = Instant.now().atZone(ZoneId.of(current.timezone)).toLocalDate().toString()
                                 client.branchShift(device, day, current)?.takeIf { value ->
                                     val known = roster.employees.map { it.id }.toSet()
-                                    (value.cooks + value.operators + value.assistants).all { it in known }
+                                    (value.cooks + value.operators + value.assistants + value.trainees).all { it in known }
                                 }
                             } catch (_: IOException) { null } else null
                             LoadedRoster(current, roster.employees, false, template, capabilities.employeeVisibility, capabilities.branchShiftTemplate)
@@ -360,10 +367,14 @@ class CookShiftActivity : AppCompatActivity() {
                         } else null
                     active ?: CookLocalSession.cache(applicationContext).load()
                 }
-                if (previous?.binding == newBinding) {
+                if (previous?.binding == newBinding && CookShiftPolicy.usable(previous.shift, newBinding, previous.binding, Instant.now())) {
+                    val shift = previous.shift
+                    if (shift.id == intent.getStringExtra("shift_id") && shift.revision == intent.getIntExtra("revision", -1)) activeEdit = shift
+                    assistants.addAll(shift.assistants)
+                    trainees.addAll(shift.trainees)
                     cooks.addAll(previous.shift.cooks.filter { id -> roster.any { it.id == id } })
                     operators.addAll(previous.shift.operators.filter { id -> roster.any { it.id == id } })
-                    selectedPeople.addAll(cooks + operators)
+                    selectedPeople.addAll(cooks + operators + assistants + trainees)
                     mainCook = previous.shift.mainCookId.takeIf { it in cooks }
                 }
                 render()
@@ -380,6 +391,10 @@ class CookShiftActivity : AppCompatActivity() {
     private fun render() {
         if (BuildConfig.FLAVOR == "clean" && !(preview && intent.getBooleanExtra("test_legacy_shift_ui", false))) {
             footer.removeAllViews()
+            if (intent.hasExtra("shift_id")) {
+                renderActiveShift()
+                return
+            }
             if (pizzaMode) renderPizzaShift() else renderWizard()
             if (pizzaMode || wizardStep != 0) pinActions()
             return
@@ -477,6 +492,95 @@ class CookShiftActivity : AppCompatActivity() {
         }
     }
 
+    private companion object { const val TRAINEE_COUNT_STEP = -1 }
+
+    private fun eligible(employee: CookEmployee, role: CookShiftWizard.Role): Boolean {
+        if (role == CookShiftWizard.Role.TRAINEE) return "trainee" in employee.roles
+        return "trainee" !in employee.roles || role.name.lowercase() in employee.roles
+    }
+
+    private fun pick(title: String, people: List<CookEmployee>, onPick: (CookEmployee) -> Unit) {
+        val choices = people.filterNot { CookEmployeeLabels.ambiguous(it, employees) }
+        if (choices.isEmpty()) { showError("Нет доступных сотрудников"); return }
+        AlertDialog.Builder(this).setTitle(title).setItems(choices.map { CookEmployeeLabels.label(it, employees) }.toTypedArray()) { _, index ->
+            onPick(choices[index])
+        }.setNegativeButton("Отмена", null).show()
+    }
+
+    private fun promoteTrainee(role: CookShiftWizard.Role) {
+        val target = role.name.lowercase()
+        val current = binding ?: return
+        if (offlineMode) { showError("Для назначения стажёра нужен интернет"); return }
+        pick("Добавить стажёра", employees.filter { "trainee" in it.roles && target !in it.roles && (!pizzaMode || it.id !in pizzaCooks) }) { employee ->
+            scope.launch {
+                runCatching {
+                    if (!preview) withContext(Dispatchers.IO) {
+                        val (api, device) = client()
+                        api.promoteTrainee(device, current, employee.id, target)
+                    }
+                    employees = employees.map { if (it.id == employee.id) it.copy(roles = it.roles + target) else it }
+                    if (!preview) withContext(Dispatchers.IO) {
+                        val cache = CookDeviceRosterCache(CookLocalSession.preferences(applicationContext))
+                        val roster = cache.load()
+                        if (roster?.binding == current) check(cache.save(current, roster.employees.map {
+                            if (it.id == employee.id) it.copy(roles = (it.roles + target).distinct()) else it
+                        }))
+                    }
+                    if (pizzaMode) pizzaChoice = employee.id
+                    else if (wizard?.available(role, listOf(employee.id))?.contains(employee.id) == true) wizardChoice = employee.id
+                    render()
+                }.onFailure { if (it is CancellationException) throw it else showError(when ((it as? CookApiHttpException)?.status) {
+                    404 -> "Сервер пока не поддерживает назначение стажёра"
+                    409 -> "Справочник изменился. Откройте список заново"
+                    else -> "Не удалось подтвердить роль стажёра. Проверьте подключение."
+                }) }
+            }
+        }
+    }
+
+    private fun renderActiveShift() {
+        content.removeAllViews()
+        val shift = activeEdit
+        if (shift == null) {
+            content.addView(label("Состав изменился. Откройте его снова с камеры.", 18f))
+            content.addView(action("К камере") { finish() })
+            return
+        }
+        content.addView(label("Кто готовит дальше?", 24f))
+        val ids = intent.getStringArrayExtra("author_ids").orEmpty()
+        val names = intent.getStringArrayExtra("author_names").orEmpty()
+        if (ids.size == names.size) ids.forEachIndexed { index, id ->
+            content.addView(action(names[index], primary = id == intent.getStringExtra("current_author")) {
+                setResult(RESULT_OK, android.content.Intent().putExtra("author_id", id)
+                    .putExtra("shift_id", shift.id).putExtra("revision", shift.revision))
+                finish()
+            })
+        }
+        val members = (shift.cooks + shift.operators + shift.assistants + shift.trainees).toSet()
+        val roles = listOf(Triple("Повар", CookShiftWizard.Role.COOK, (if (pizzaMode) 2 else 4) - shift.cooks.size),
+            Triple("Оператор", CookShiftWizard.Role.OPERATOR, 2 - shift.operators.size),
+            Triple("Помощник", CookShiftWizard.Role.ASSISTANT, 2 - shift.assistants.size),
+            Triple("Стажёр", CookShiftWizard.Role.TRAINEE, 3 - shift.trainees.size)).filter { it.third > 0 && (!pizzaMode || it.second == CookShiftWizard.Role.COOK) }
+        if (members.size < 10 && roles.isNotEmpty()) content.addView(action("Добавить в состав") {
+            fun choose(role: CookShiftWizard.Role) = pick("Кто присоединился?", employees.filter { it.id !in members && (pizzaMode || eligible(it, role)) }) { person ->
+                fun fill(set: MutableSet<String>, original: List<String>) { set.clear(); set.addAll(original) }
+                fill(cooks, shift.cooks); fill(operators, shift.operators); fill(assistants, shift.assistants); fill(trainees, shift.trainees)
+                when (role) {
+                    CookShiftWizard.Role.OPERATOR -> operators
+                    CookShiftWizard.Role.COOK -> cooks
+                    CookShiftWizard.Role.ASSISTANT -> assistants
+                    CookShiftWizard.Role.TRAINEE -> trainees
+                }.add(person.id)
+                selectedPeople.clear(); selectedPeople.addAll(members + person.id)
+                mainCook = shift.mainCookId
+                saveShift()
+            }
+            if (roles.size == 1) choose(roles.first().second) else AlertDialog.Builder(this).setTitle("Роль сотрудника")
+                .setItems(roles.map { it.first }.toTypedArray()) { _, i -> choose(roles[i].second) }.show()
+        }.apply { isEnabled = !busy })
+        content.addView(action("К камере") { finish() })
+    }
+
     private fun renderPizzaShift() {
         content.removeAllViews()
         (content.parent as? ScrollView)?.post { (content.parent as? ScrollView)?.scrollTo(0, 0) }
@@ -512,7 +616,7 @@ class CookShiftActivity : AppCompatActivity() {
                     })
                 }
             })
-            content.addView(action("Добавить сотрудника") { addEmployee() })
+            content.addView(action("Добавить стажёра") { promoteTrainee(CookShiftWizard.Role.COOK) })
             if (employeeVisibilityEnabled) {
                 content.addView(action("Убрать сотрудника") { hideEmployee() })
                 content.addView(action("Вернуть сотрудника") { restoreEmployee() })
@@ -535,7 +639,7 @@ class CookShiftActivity : AppCompatActivity() {
         }
         content.addView(action("Начать смену", primary = true) {
             cooks.clear(); cooks.addAll(pizzaCooks)
-            operators.clear(); assistants.clear(); selectedPeople.clear(); selectedPeople.addAll(pizzaCooks)
+            operators.clear(); assistants.clear(); trainees.clear(); selectedPeople.clear(); selectedPeople.addAll(pizzaCooks)
             mainCook = pizzaCooks.firstOrNull()
             saveShift()
         }.apply { isEnabled = !busy })
@@ -554,15 +658,19 @@ class CookShiftActivity : AppCompatActivity() {
         fun back(step: Int) { content.addView(action("Назад") { wizardChoice = null; wizardStep = step; render() }) }
         fun counts(title: String, values: IntRange, selected: Int, onNext: (Int) -> Unit) {
             content.addView(label(title, 20f))
+            if (wizardStep == 1) content.addView(label("Повара, операторы, помощники и стажёры", 16f))
             var choice = selected.coerceIn(values.first, values.last)
             content.addView(RadioGroup(this).apply {
-                values.forEach { number ->
+                val visibleCounts = if (wizardStep == TRAINEE_COUNT_STEP) 0..3 else values
+                visibleCounts.forEach { number ->
                     addView(RadioButton(this@CookShiftActivity).apply {
                         id = View.generateViewId(); text = number.toString(); setTextColor(ink)
                         textSize = 20f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = number == choice
                         setOnClickListener { choice = number }
                         styleChoice()
+                        isEnabled = number in values
+                        if (!isEnabled) alpha = .36f
                     })
                 }
                 arrangeCounts()
@@ -571,19 +679,6 @@ class CookShiftActivity : AppCompatActivity() {
         }
         when (wizardStep) {
             0 -> {
-                val ids = intent.getStringArrayExtra("author_ids").orEmpty()
-                val names = intent.getStringArrayExtra("author_names").orEmpty()
-                if (ids.size > 1 && ids.size == names.size) {
-                    content.addView(action("Сменить основного повара") {
-                        androidx.appcompat.app.AlertDialog.Builder(this).setTitle("Кто готовит дальше?")
-                            .setSingleChoiceItems(names, ids.indexOf(intent.getStringExtra("current_author"))) { dialog, index ->
-                                setResult(RESULT_OK, android.content.Intent().putExtra("author_id", ids[index])
-                                    .putExtra("shift_id", intent.getStringExtra("shift_id"))
-                                    .putExtra("revision", intent.getIntExtra("revision", -1)))
-                                dialog.dismiss(); finish()
-                            }.setNegativeButton("Отмена", null).show()
-                    })
-                }
                 if (branchTemplate != null) content.addView(label("Состав из бота", 16f))
                 content.addView(action("Начать смену", primary = true) {
                     if (!applyBranchTemplate()) wizardStep = 1
@@ -592,7 +687,7 @@ class CookShiftActivity : AppCompatActivity() {
                 return
             }
             1 -> {
-                counts("Сколько сотрудников?", 1..6, staffCount) {
+                counts("Сколько сотрудников?", 1..10, staffCount) {
                     staffCount = it; wizardChoice = null; wizard = if (it == 1) CookShiftWizard(1) else null
                     wizardStep = if (it == 1) 5 else 2; render()
                 }
@@ -605,26 +700,32 @@ class CookShiftActivity : AppCompatActivity() {
                 back(1); return
             }
             3 -> {
-                counts("Сколько поваров?", 1..minOf(4, staffCount), cookCount) {
+                counts("Сколько поваров?", maxOf(1, staffCount - operatorCount - 5)..minOf(4, staffCount), cookCount) {
                     cookCount = it; wizardStep = 4; render()
                 }
                 back(2); return
             }
             4 -> {
-                counts("Сколько помощников?", 0..minOf(2, staffCount), assistantCount) {
-                    assistantCount = it
-                    val next = CookShiftWizard(staffCount)
-                    if (runCatching { next.setCounts(operatorCount, cookCount, assistantCount) }.isFailure) {
-                        showError("Указанных ролей недостаточно для всех сотрудников смены")
-                    } else { wizard = next; wizardChoice = null; wizardStep = 5; render() }
+                counts("Сколько помощников?", maxOf(0, staffCount - operatorCount - cookCount - 3)..minOf(2, staffCount), assistantCount) {
+                    assistantCount = it; wizardStep = TRAINEE_COUNT_STEP; render()
                 }
                 back(3); return
+            }
+            TRAINEE_COUNT_STEP -> {
+                counts("Сколько стажёров?", maxOf(0, staffCount - operatorCount - cookCount - assistantCount)..minOf(3, staffCount - maxOf(operatorCount, cookCount, assistantCount)), traineeCount) {
+                    traineeCount = it
+                    val next = CookShiftWizard(staffCount)
+                    if (runCatching { next.setCounts(operatorCount, cookCount, assistantCount, traineeCount) }.isFailure) {
+                        showError("Количество ролей не соответствует числу сотрудников")
+                    } else { wizard = next; wizardChoice = null; wizardStep = 5; render() }
+                }
+                back(4); return
             }
         }
         val draft = wizard ?: run { wizardStep = 1; render(); return }
         val roles = if (staffCount == 1) emptyList() else
             List(operatorCount) { CookShiftWizard.Role.OPERATOR } + List(cookCount) { CookShiftWizard.Role.COOK } +
-                List(assistantCount) { CookShiftWizard.Role.ASSISTANT }
+                List(assistantCount) { CookShiftWizard.Role.ASSISTANT } + List(traineeCount) { CookShiftWizard.Role.TRAINEE }
         val selectionEnd = 5 + if (staffCount == 1) 1 else roles.size
         if (wizardStep in 5 until selectionEnd) {
             val index = wizardStep - 5
@@ -635,9 +736,10 @@ class CookShiftActivity : AppCompatActivity() {
                 CookShiftWizard.Role.OPERATOR -> "Выберите оператора $number"
                 CookShiftWizard.Role.COOK -> "Выберите повара $number"
                 CookShiftWizard.Role.ASSISTANT -> "Выберите помощника $number"
+                CookShiftWizard.Role.TRAINEE -> "Выберите стажёра $number"
             }
             content.addView(label(title, 20f))
-            val allowed = if (role == null) employees.map { it.id } else draft.available(role, employees.map { it.id })
+            val allowed = if (role == null) employees.map { it.id } else draft.available(role, employees.filter { eligible(it, role) }.map { it.id })
             content.addView(RadioGroup(this).apply {
                 employees.filter { it.id in allowed }.forEach { employee ->
                     addView(RadioButton(this@CookShiftActivity).apply {
@@ -650,7 +752,9 @@ class CookShiftActivity : AppCompatActivity() {
                     })
                 }
             })
-            content.addView(action("Добавить сотрудника") { addEmployee() })
+            if (role == CookShiftWizard.Role.COOK || role == CookShiftWizard.Role.OPERATOR) {
+                content.addView(action("Добавить стажёра") { promoteTrainee(role) })
+            } else if (role != CookShiftWizard.Role.TRAINEE) content.addView(action("Добавить сотрудника") { addEmployee() })
             if (employeeVisibilityEnabled) {
                 content.addView(action("Убрать сотрудника") { hideEmployee() })
                 content.addView(action("Вернуть сотрудника") { restoreEmployee() })
@@ -664,7 +768,7 @@ class CookShiftActivity : AppCompatActivity() {
             })
             content.addView(action("Назад") {
                 wizardChoice = null
-                if (index == 0) { wizard = null; wizardStep = if (staffCount == 1) 1 else 4 }
+                if (index == 0) { wizard = null; wizardStep = if (staffCount == 1) 1 else TRAINEE_COUNT_STEP }
                 else { wizardChoice = draft.selected(roles[index - 1]).last(); draft.removeLast(roles[index - 1]); wizardStep-- }
                 render()
             })
@@ -697,7 +801,7 @@ class CookShiftActivity : AppCompatActivity() {
         }
         content.addView(label("Проверьте состав", 20f))
         for ((role, title) in listOf(CookShiftWizard.Role.OPERATOR to "Оператор", CookShiftWizard.Role.COOK to "Повар",
-                CookShiftWizard.Role.ASSISTANT to "Помощник")) {
+                CookShiftWizard.Role.ASSISTANT to "Помощник", CookShiftWizard.Role.TRAINEE to "Стажёр")) {
             draft.selected(role).forEach { id ->
                 val person = employees.firstOrNull { it.id == id }
                 if (person != null) content.addView(label("$title: ${CookEmployeeLabels.label(person, employees)}" +
@@ -713,7 +817,8 @@ class CookShiftActivity : AppCompatActivity() {
             cooks.clear(); cooks.addAll(draft.selected(CookShiftWizard.Role.COOK))
             operators.clear(); operators.addAll(draft.selected(CookShiftWizard.Role.OPERATOR))
             assistants.clear(); assistants.addAll(draft.selected(CookShiftWizard.Role.ASSISTANT))
-            selectedPeople.clear(); selectedPeople.addAll(cooks + operators + assistants)
+            trainees.clear(); trainees.addAll(draft.selected(CookShiftWizard.Role.TRAINEE))
+            selectedPeople.clear(); selectedPeople.addAll(cooks + operators + assistants + trainees)
             mainCook = draft.mainCook
             saveShift()
         }.apply { isEnabled = !busy })
@@ -730,7 +835,7 @@ class CookShiftActivity : AppCompatActivity() {
         val template = branchTemplate ?: return false
         return runCatching {
             val people = employees.associateBy { it.id }
-            require((template.operators + template.cooks + template.assistants).all {
+            require((template.operators + template.cooks + template.assistants + template.trainees).all {
                 val person = people[it]
                 person != null && !CookEmployeeLabels.ambiguous(person, employees)
             })
@@ -738,17 +843,19 @@ class CookShiftActivity : AppCompatActivity() {
             operatorCount = template.operators.size
             cookCount = template.cooks.size
             assistantCount = template.assistants.size
+            traineeCount = template.trainees.size
             val draft = CookShiftWizard(staffCount)
             if (staffCount == 1) draft.selectSingle(template.cooks.single()) else {
-                draft.setCounts(operatorCount, cookCount, assistantCount)
+                draft.setCounts(operatorCount, cookCount, assistantCount, traineeCount)
                 template.operators.forEach { draft.select(CookShiftWizard.Role.OPERATOR, it) }
                 template.cooks.forEach { draft.select(CookShiftWizard.Role.COOK, it) }
+                template.trainees.forEach { draft.select(CookShiftWizard.Role.TRAINEE, it) }
                 template.assistants.forEach { draft.select(CookShiftWizard.Role.ASSISTANT, it) }
             }
             wizard = draft
             appliedTemplateRevision = template.revision
             wizardChoice = null
-            wizardStep = 5 + if (staffCount == 1) 1 else operatorCount + cookCount + assistantCount
+            wizardStep = 5 + if (staffCount == 1) 1 else operatorCount + cookCount + assistantCount + traineeCount
             true
         }.getOrElse {
             showError("Не удалось применить состав из бота. Выберите смену вручную.")
@@ -905,7 +1012,7 @@ class CookShiftActivity : AppCompatActivity() {
         val binding = binding ?: return
         val timezone = binding.timezone ?: return
         val main = mainCook
-        if (selectedPeople.any { it !in cooks && it !in operators && it !in assistants }) {
+        if (selectedPeople.any { it !in cooks && it !in operators && it !in assistants && it !in trainees }) {
             showError("Отметьте роль каждого выбранного сотрудника")
             return
         }
@@ -913,7 +1020,7 @@ class CookShiftActivity : AppCompatActivity() {
             showError("Выберите поваров и основного повара")
             return
         }
-        if (employees.any { it.id in cooks + operators + assistants && CookEmployeeLabels.ambiguous(it, employees) }) {
+        if (employees.any { it.id in cooks + operators + assistants + trainees && CookEmployeeLabels.ambiguous(it, employees) }) {
             showError("У сотрудников одинаковые имена. Уточните имена в справочнике перед подтверждением смены.")
             return
         }
@@ -922,41 +1029,44 @@ class CookShiftActivity : AppCompatActivity() {
         val selectedCooks = cooks.sorted()
         val selectedOperators = operators.sorted()
         val selectedAssistants = assistants.sorted()
+        val selectedTrainees = trainees.sorted()
+        val carryAuthor = intent.getStringExtra("current_author")?.takeIf { activeEdit != null && it in cooks + operators + trainees }
         scope.launch {
             val result = runCatching { withContext(Dispatchers.IO) {
                 val zone = ZoneId.of(timezone)
                 val now = Instant.now().atZone(zone)
                 val store = CookPendingShiftStore(CookLocalSession.preferences(applicationContext))
-                val prior = store.load()
-                val pending = if (prior != null && prior.binding == binding && prior.shift.operationalDate == now.toLocalDate().toString()
-                    && prior.shift.cooks == selectedCooks && prior.shift.operators == selectedOperators && prior.shift.mainCookId == main
-                    && prior.shift.assistants == selectedAssistants) prior
-                else PendingCookShift(UUID.randomUUID().toString(), binding,
-                    CookShift(UUID.randomUUID().toString(), 0, binding.branchRef, now.toLocalDate().toString(), timezone,
-                        now.toOffsetDateTime().toString(), selectedCooks, selectedOperators, main, selectedAssistants))
-                check(store.save(pending)) { "Не удалось сохранить запрос смены" }
                 val scope = CookLocalSession.offlineScope(applicationContext, binding)
                 val dao = CookOfflineDatabase.get(applicationContext).queue()
                 fun reference(id: String): JSONObject {
                     val temporary = dao.employee(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision, id) != null
                     return JSONObject().put("kind", if (temporary) "provisional" else "employee").put("id", id)
                 }
-                val hasProvisional = (selectedCooks + selectedOperators + selectedAssistants).any { id -> reference(id).getString("kind") == "provisional" }
+                val hasProvisional = (selectedCooks + selectedOperators + selectedAssistants + selectedTrainees).any { id -> reference(id).getString("kind") == "provisional" }
+                val prior = store.load()
+                val pending = if (prior != null && prior.binding == binding && prior.shift.operationalDate == now.toLocalDate().toString()
+                    && prior.shift.cooks == selectedCooks && prior.shift.operators == selectedOperators && prior.shift.mainCookId == main
+                    && prior.shift.assistants == selectedAssistants && prior.shift.trainees == selectedTrainees) prior
+                else PendingCookShift(UUID.randomUUID().toString(), binding,
+                    CookShift(activeEdit?.id?.takeUnless { offlineMode || hasProvisional || CookLocalSession.preferences(applicationContext).contains(CookOfflineSelectionCache.KEY) } ?: UUID.randomUUID().toString(), 0, binding.branchRef, now.toLocalDate().toString(), timezone,
+                        now.toOffsetDateTime().toString(), selectedCooks, selectedOperators, main, selectedAssistants, selectedTrainees))
+                check(store.save(pending)) { "Не удалось сохранить запрос смены" }
                 if (offlineMode || hasProvisional) {
                     val localShift = OfflineCookShift(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision,
                         pending.shift.id, pending.requestId, pending.shift.id, pending.shift.operationalDate,
                         pending.shift.timezone, pending.shift.confirmedAt,
                         JSONArray(selectedCooks.map(::reference)).toString(), JSONArray(selectedOperators.map(::reference)).toString(),
-                        reference(main).toString(), assistantsJson = JSONArray(selectedAssistants.map(::reference)).toString())
+                        reference(main).toString(), assistantsJson = JSONArray(selectedAssistants.map(::reference)).toString(),
+                        traineesJson = JSONArray(selectedTrainees.map(::reference)).toString())
                     dao.enqueueShift(localShift)
                     val cache = CookOfflineSelectionCache(CookLocalSession.preferences(applicationContext), dao, scope)
-                    check(cache.save(localShift, employees)) { "Не удалось сохранить локальную смену" }
+                    check(cache.save(localShift, employees, carryAuthor)) { "Не удалось сохранить локальную смену" }
                     if (!preview) runCatching {
                         val city = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE).getString(AppPrefs.KEY_CITY, "").orEmpty()
                         CookOfflineSyncWorker.enqueue(applicationContext, scope, city)
                     }
                 } else {
-                    val revision = if (preview) 1 else {
+                    val revision = if (preview) (activeEdit?.revision ?: 0) + 1 else {
                         val (client, device) = client()
                         check(client.initializeBinding(device) == binding) { "Привязка филиала изменилась" }
                         val result = requireNotNull(client.confirmShift(device, pending.requestId, pending.shift, binding))
@@ -964,7 +1074,7 @@ class CookShiftActivity : AppCompatActivity() {
                         result.second
                     }
                     val snapshot = CachedCookShift(binding, pending.shift.copy(revision = revision), employees)
-                    check(CookLocalSession.cache(applicationContext).save(snapshot)) { "Не удалось сохранить смену" }
+                    check(CookLocalSession.cache(applicationContext).saveRefreshed(snapshot, carryAuthor)) { "Не удалось сохранить смену" }
                     check(CookOfflineSelectionCache(CookLocalSession.preferences(applicationContext), dao, scope).clear()) {
                         "Не удалось обновить выбор смены"
                     }

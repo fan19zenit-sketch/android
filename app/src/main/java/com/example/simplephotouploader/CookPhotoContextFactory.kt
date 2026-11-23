@@ -42,7 +42,7 @@ object CookPhotoContextFactory {
         require(selectionSource in setOf("main_default", "one_shot", "explicit_unknown", "shared"))
         if (selectionSource in setOf("main_default", "one_shot")) {
             require(employee != null && (employee.id in shift.cooks ||
-                (selectionSource == "one_shot" && employee.id in shift.operators)) && employee.displayName.isNotBlank())
+                (selectionSource == "one_shot" && (employee.id in shift.operators || employee.id in shift.trainees))) && employee.displayName.isNotBlank())
             require(selectionSource != "main_default" || employee.id == shift.mainCookId)
             require(selectionSource != "one_shot" || employee.id != shift.mainCookId)
         } else {
@@ -79,13 +79,14 @@ object CookPhotoContextFactory {
         val cooks = JSONArray(shift.cooksJson).let { array ->
             (0 until array.length()).map { ref(array.getJSONObject(it)) }
         }
-        val operators = JSONArray(shift.operatorsJson).let { array ->
+        val otherAuthors = listOf(shift.operatorsJson, shift.traineesJson).flatMap { raw ->
+            val array = JSONArray(raw)
             (0 until array.length()).map { ref(array.getJSONObject(it)) }
         }
         val main = ref(JSONObject(shift.mainCookJson))
         if (selectionSource in setOf("main_default", "one_shot")) {
             require(employee != null && selectedRef != null &&
-                (selectedRef in cooks || (selectionSource == "one_shot" && selectedRef in operators)))
+                (selectedRef in cooks || (selectionSource == "one_shot" && selectedRef in otherAuthors)))
             require(employee.id == selectedRef.id && employee.displayName.isNotBlank())
             require(selectionSource != "main_default" || selectedRef == main)
             require(selectionSource != "one_shot" || selectedRef != main)

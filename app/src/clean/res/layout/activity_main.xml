@@ -16,11 +16,7 @@
         android:layout_height="wrap_content"
         android:visibility="gone" />
 
-    <androidx.camera.view.PreviewView
-        android:id="@+id/previewView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+    <include layout="@layout/camera_stage" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
 
     <include layout="@layout/camera_console" />
 </LinearLayout>

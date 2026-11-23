@@ -4,6 +4,9 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.util.UUID
 
+internal fun CookShift.photoAuthors(operatorEnabled: Boolean, pizza: Boolean): List<String> =
+    if (pizza) cooks else (cooks + (if (operatorEnabled) operators else emptyList()) + trainees).distinct()
+
 internal object CookCameraRosterRefresh {
     fun newer(template: CookBranchShiftTemplate, shift: CookShift, now: Instant): Boolean {
         if (template.branchRef != shift.branchRef || template.operationalDate != shift.operationalDate ||
@@ -14,7 +17,7 @@ internal object CookCameraRosterRefresh {
 
     fun withTemplate(shift: CookShift, template: CookBranchShiftTemplate): CookShift = shift.copy(
         confirmedAt = requireNotNull(template.confirmedAt), cooks = template.cooks.sorted(),
-        operators = template.operators.sorted(), assistants = template.assistants.sorted(),
+        operators = template.operators.sorted(), assistants = template.assistants.sorted(), trainees = template.trainees.sorted(),
     )
 
     // If the acknowledgement is lost, retry the identical shift revision, not a new write.

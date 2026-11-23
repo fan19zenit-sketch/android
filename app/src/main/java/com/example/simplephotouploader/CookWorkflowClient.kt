@@ -12,7 +12,7 @@ import org.json.JSONObject
 
 data class CookCapabilities(val roster: Boolean, val shift: Boolean, val photoContext: Boolean, val shiftPresence: Boolean = false,
                             val shiftAssistants: Boolean = false, val operatorPhotoAuthor: Boolean = false,
-                            val branchShiftTemplate: Boolean = false, val employeeVisibility: Boolean = false) {
+                            val branchShiftTemplate: Boolean = false, val employeeVisibility: Boolean = false, val shiftTrainees: Boolean = false) {
     val supportsAttributedCapture: Boolean get() = roster && shift && photoContext
 }
 data class CookEmployee(val id: String, val displayName: String, val roles: List<String>)
@@ -21,10 +21,12 @@ data class CookRoster(val branchRef: String, val employees: List<CookEmployee>)
 data class CookBinding(val branchRef: String, val revision: Int, val timezone: String? = null)
 data class CookBranchShiftTemplate(val branchRef: String, val operationalDate: String, val timezone: String,
                                    val revision: Int, val staffCount: Int, val operators: List<String>,
-                                   val cooks: List<String>, val assistants: List<String>, val confirmedAt: String? = null)
+                                   val cooks: List<String>, val assistants: List<String>, val confirmedAt: String? = null,
+                                   val trainees: List<String> = emptyList())
 data class CookShift(val id: String, val revision: Int, val branchRef: String, val operationalDate: String,
                      val timezone: String, val confirmedAt: String, val cooks: List<String>,
-                     val operators: List<String>, val mainCookId: String, val assistants: List<String> = emptyList())
+                     val operators: List<String>, val mainCookId: String, val assistants: List<String> = emptyList(),
+                     val trainees: List<String> = emptyList())
 
 class CookApiHttpException(val status: Int) : IOException("Cook API HTTP $status")
 class CookApiProtocolException(message: String, cause: Throwable? = null) : IOException(message, cause)
@@ -58,7 +60,7 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         if (it.optInt("schemaVersion") != 1) throw IOException("Unsupported Cook API schema")
         CookCapabilities(it.optBoolean("roster"), it.optBoolean("shift"), it.optBoolean("photoContext"), it.optBoolean("shiftPresence"),
             it.optBoolean("shiftAssistants"), it.optBoolean("operatorPhotoAuthor"), it.optBoolean("branchShiftTemplate"),
-            it.optBoolean("employeeVisibility"))
+            it.optBoolean("employeeVisibility"), it.optBoolean("shiftTrainees"))
     }
 
     fun initializeBinding(deviceId: String): CookBinding {
@@ -74,7 +76,7 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         return CookBinding(branch, revision, timezone)
     }
 
-    fun roster(deviceId: String): CookRoster? = request("employees", mapOf("deviceUuid" to deviceId))?.let { json ->
+    fun roster(deviceId: String): CookRoster? = request("employees", mapOf("deviceUuid" to deviceId, "includeTrainees" to "true"))?.let { json ->
         val employees = json.getJSONArray("employees")
         CookRoster(json.getString("branchRef"), (0 until employees.length()).map { index ->
             val entry = employees.getJSONObject(index)
@@ -93,19 +95,21 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
             val operators = strings(item.getJSONArray("operators"))
             val cooks = strings(item.getJSONArray("cooks"))
             val assistants = strings(item.getJSONArray("assistants"))
+            val trainees = item.optJSONArray("trainees")?.let(::strings).orEmpty()
             val staffCount = item.getInt("staffCount")
             val revision = item.getInt("revision")
             val timezone = item.getString("timezone")
             require(item.getString("branchRef") == binding.branchRef && item.getString("operationalDate") == day)
-            require(binding.timezone == timezone && revision > 0 && staffCount in 1..6)
+            require(binding.timezone == timezone && revision > 0 && staffCount in 1..10)
             require(operators.size in 1..2 && cooks.size in 1..4 && assistants.size in 0..2)
-            require(listOf(operators, cooks, assistants).all { it.size == it.toSet().size && it.all(String::isNotBlank) })
-            require((operators + cooks + assistants).toSet().size == staffCount)
+            require(trainees.size <= 3 && trainees.none { it in operators + cooks + assistants })
+            require(listOf(operators, cooks, assistants, trainees).all { it.size == it.toSet().size && it.all(String::isNotBlank) })
+            require((operators + cooks + assistants + trainees).toSet().size == staffCount)
             if (staffCount == 1) require(operators == cooks && assistants.isEmpty())
             val confirmedAt = item.optString("confirmedAt").takeIf { it.isNotBlank() && it != "null" }
             if (confirmedAt != null) require(java.time.OffsetDateTime.parse(confirmedAt).atZoneSameInstant(
                 java.time.ZoneId.of(timezone)).toLocalDate().toString() == day)
-            return CookBranchShiftTemplate(binding.branchRef, day, timezone, revision, staffCount, operators, cooks, assistants, confirmedAt)
+            return CookBranchShiftTemplate(binding.branchRef, day, timezone, revision, staffCount, operators, cooks, assistants, confirmedAt, trainees)
         } catch (error: Exception) {
             if (error is CookApiProtocolException) throw error
             throw CookApiProtocolException("Некорректная смена филиала", error)
@@ -141,6 +145,14 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
         }
     }
 
+    fun promoteTrainee(device: String, binding: CookBinding, id: String, role: String) {
+        val result = request("employees/trainee-role", body = JSONObject().put("deviceUuid", device)
+            .put("branchRef", binding.branchRef).put("bindingRevision", binding.revision).put("employeeId", id).put("role", role))
+        if (result == null || result.optString("branchRef") != binding.branchRef || result.optInt("bindingRevision") != binding.revision ||
+            result.optString("employeeId") != id || result.optString("role") != role)
+            throw CookApiProtocolException("Назначение стажёра не подтверждено")
+    }
+
     fun setEmployeeHidden(deviceId: String, binding: CookBinding, employeeId: String, hidden: Boolean) {
         require(employeeId.isNotBlank())
         val result = request("employees/visibility", body = JSONObject().put("deviceUuid", deviceId)
@@ -171,12 +183,15 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
     fun confirmShift(deviceId: String, requestId: String, shift: CookShift, binding: CookBinding? = null,
                      provisionalShiftId: String? = null): Pair<String, Int>? {
         validateProvisional(provisionalShiftId, binding)
+        if (shift.trainees.isNotEmpty() && capabilities(deviceId)?.shiftTrainees != true)
+            throw CookApiProtocolException("Сервер пока не поддерживает стажёров")
         if (shift.assistants.isNotEmpty() && capabilities(deviceId)?.shiftAssistants != true)
             throw CookApiProtocolException("Сервер пока не поддерживает помощников в смене")
         return request("shifts", body = JSONObject().put("deviceUuid", deviceId).put("requestId", requestId)
             .put("shiftId", shift.id).put("operationalDate", shift.operationalDate).put("timezone", shift.timezone)
             .put("confirmedAt", shift.confirmedAt).put("cooks", JSONArray(shift.cooks))
             .put("operators", JSONArray(shift.operators)).put("mainCookId", shift.mainCookId).apply {
+                if (shift.trainees.isNotEmpty()) put("trainees", JSONArray(shift.trainees))
                 if (shift.assistants.isNotEmpty()) put("assistants", JSONArray(shift.assistants))
                 if (binding != null) put("branchRef", binding.branchRef).put("bindingRevision", binding.revision)
                 if (provisionalShiftId != null) put("provisionalShiftId", provisionalShiftId)
@@ -184,6 +199,8 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
             requireProvisionalAck(it, "provisionalShiftId", provisionalShiftId, binding)
             val returnedId = it.getString("shiftId")
             val revision = it.getInt("shiftRevision")
+            if (shift.trainees.isNotEmpty() && it.optJSONArray("trainees")?.let(::strings) != shift.trainees)
+                throw CookApiProtocolException("Сервер не подтвердил состав стажёров")
             if (shift.assistants.isNotEmpty() &&
                 (it.optJSONArray("assistants")?.let(::strings) != shift.assistants))
                 throw CookApiProtocolException("Сервер не подтвердил состав помощников")
@@ -201,7 +218,7 @@ class CookWorkflowClient(baseUrl: String, private val execute: (Request) -> Resp
                 CookShift(item.getString("shiftId"), item.getInt("shiftRevision"), item.getString("branchRef"),
                     item.getString("operationalDate"), item.getString("timezone"), item.getString("confirmedAt"),
                     strings(item.getJSONArray("cooks")), strings(item.getJSONArray("operators")), item.getString("mainCookId"),
-                    item.optJSONArray("assistants")?.let(::strings) ?: emptyList())
+                    item.optJSONArray("assistants")?.let(::strings) ?: emptyList(), item.optJSONArray("trainees")?.let(::strings).orEmpty())
             }
         }
 

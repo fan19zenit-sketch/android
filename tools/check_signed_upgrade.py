@@ -9,6 +9,7 @@ from email.policy import default
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
 import json
+import re
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 from xml.sax.saxutils import escape
+import xml.etree.ElementTree as ET
 
 
 PACKAGE = 'com.example.photovchistotu'
@@ -114,7 +116,34 @@ def rows(path):
         return db.execute('SELECT id,photoPath,status,queuedInUploadQueue FROM photo_records ORDER BY id').fetchall()
 
 
-def main(old_apk, candidate):
+def choose_phone_mode(mode):
+    def screen():
+        adb('shell', 'uiautomator', 'dump', '/sdcard/fixture-mode.xml')
+        return {n.get('resource-id', '').split('/')[-1]: n for n in
+                ET.fromstring(adb('shell', 'cat', '/sdcard/fixture-mode.xml')).iter('node')}
+
+    def tap(node):
+        left, top, right, bottom = map(int, re.findall(r'\d+', node.attrib['bounds']))
+        adb('shell', 'input', 'tap', str((left + right) // 2), str((top + bottom) // 2))
+
+    nodes = screen()
+    if not {'rbDeviceMain', 'rbDevicePizza', 'btnSave'} <= nodes.keys() or 'etCity' in nodes:
+        raise RuntimeError('expected a device-only prompt on upgrade')
+    if nodes['btnSave'].get('enabled') != 'false':
+        raise RuntimeError('phone mode must be chosen explicitly')
+    tap(nodes['rbDeviceMain' if mode == 'main' else 'rbDevicePizza'])
+    tap(screen()['btnSave'])
+    for _ in range(10):
+        stored = ET.fromstring(adb('shell', 'cat', PREFS))
+        values = {item.get('name'): item.text for item in stored}
+        if values.get('pilot_mode_confirmed_device') == DEVICE and values.get('device_mode') == mode:
+            print('LOCAL_MODE_CONFIRMED:', mode)
+            return
+        time.sleep(.3)
+    raise RuntimeError('phone choice was not persisted for its UUID')
+
+
+def main(old_apk, candidate, pilot_mode=None):
     global SERIAL
     listed = command('adb', 'devices').splitlines()[1:]
     devices = [line.split()[0] for line in listed if line.endswith('\tdevice')]
@@ -191,6 +220,10 @@ def main(old_apk, candidate):
             adb('pull', APP_ROOT + '/files/' + item + '.jpg', str(copy))
             if hashlib.sha256(copy.read_bytes()).digest() != hashlib.sha256(expected_bytes).digest():
                 raise RuntimeError('fixture photo changed during installation')
+        if pilot_mode:
+            adb('shell', 'am', 'start', '-W', '-n', PACKAGE + '/com.example.simplephotouploader.MainActivity')
+            choose_phone_mode(pilot_mode)
+            adb('shell', 'am', 'force-stop', PACKAGE)
         now = datetime.now(timezone.utc)
         scope = '\0'.join(('http://127.0.0.1:18433', DEVICE, CITY))
         digest = hashlib.sha256(scope.encode()).hexdigest()
@@ -252,6 +285,11 @@ def main(old_apk, candidate):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        raise SystemExit('expected old and candidate signed APKs')
-    main(sys.argv[1], sys.argv[2])
+    if len(sys.argv) not in (3, 4, 5) or (len(sys.argv) >= 4 and sys.argv[3] not in ('main', 'pizza')):
+        raise SystemExit('expected old and candidate signed APKs, optionally main or pizza and fixture city')
+    if len(sys.argv) >= 4:
+        CITY = sys.argv[4] if len(sys.argv) == 5 else 'Кадуй'
+        if CITY not in ('Кадуй', 'Кириллов', 'Белозерск'):
+            raise SystemExit('unexpected fixture city')
+        DEVICE += '-' + sys.argv[3]
+    main(*sys.argv[1:4])

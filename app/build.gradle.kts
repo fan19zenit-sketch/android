@@ -28,8 +28,8 @@ android {
         create("clean") {
             dimension = "track"
             applicationId = "com.example.photovchistotu"
-            versionCode = 20261120
-            versionName = "3.3.7"
+            versionCode = 20261123
+            versionName = "3.3.10"
             manifestPlaceholders["appLabel"] = "Фото в чистоту 2"
         }
     }
@@ -65,7 +65,10 @@ android {
     val offlineInstrumentation = providers.gradleProperty("offlineInstrumentation").orNull == "true"
     val localIntegration = providers.gradleProperty("localIntegration").orNull == "true"
     require(!(offlineInstrumentation && localIntegration)) { "Choose only one isolated instrumentation mode" }
-    if (offlineInstrumentation) testBuildType = "preview"
+    if (offlineInstrumentation) {
+        testBuildType = "preview"
+        testOptions.animationsDisabled = true
+    }
     if (localIntegration) testBuildType = "localtest"
 }
 

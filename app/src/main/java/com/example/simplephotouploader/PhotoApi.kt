@@ -23,6 +23,10 @@ object PhotoApi {
                 .header("X-App-Version", BuildConfig.VERSION_NAME)
                 .header("X-App-Version-Code", BuildConfig.VERSION_CODE.toString())
                 .header("X-App-Package", BuildConfig.APPLICATION_ID)
+                .apply {
+                    if ("/cook-v2/" in chain.request().url.encodedPath)
+                        AppPrefs.confirmedPilotMode()?.let { header("X-Photo-Pilot-Mode", it) }
+                }
                 .header("User-Agent", "PhotoVChistotu/${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                 .build())
         }.build()
