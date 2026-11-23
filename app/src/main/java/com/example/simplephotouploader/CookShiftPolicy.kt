@@ -25,6 +25,20 @@ object CookShiftPolicy {
         }
     }
 
+    internal fun newerConfirmedShift(local: CookShift, candidates: List<CookShift>, binding: CookBinding, now: Instant): CookShift? {
+        if (!usable(local, binding, binding, now)) return null
+        val localTime = OffsetDateTime.parse(local.confirmedAt).toInstant()
+        return candidates.asSequence()
+            .filter { usable(it, binding, binding, now) && it.timezone == local.timezone }
+            .map { it to OffsetDateTime.parse(it.confirmedAt).toInstant() }
+            .filter { (shift, confirmed) ->
+                if (shift.id == local.id) shift.revision > local.revision && confirmed >= localTime
+                else confirmed > localTime
+            }
+            .maxWithOrNull(compareBy<Pair<CookShift, Instant>> { it.second }.thenBy { it.first.revision })
+            ?.first
+    }
+
     /** Caller supplies the branch timezone, not the phone's current timezone. */
     fun needsConfirmation(shift: CookShift?, binding: CookBinding?, confirmedBinding: CookBinding?, branchTimezone: String, now: Instant): Boolean {
         val localTime = try { now.atZone(ZoneId.of(branchTimezone)).toLocalTime() } catch (_: Exception) { return true }

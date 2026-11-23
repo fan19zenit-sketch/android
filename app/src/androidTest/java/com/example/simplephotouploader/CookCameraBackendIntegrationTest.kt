@@ -48,6 +48,89 @@ class CookCameraBackendIntegrationTest {
         assertTrue("Timed out waiting for isolated camera upload", predicate())
     }
 
+    @Test fun reopeningCameraRecoversNewerDeviceShiftWithoutChangingQueuedPhoto() {
+        assumeTrue(BuildConfig.BUILD_TYPE == "localtest" &&
+            InstrumentationRegistry.getArguments().getString("isolatedCookBackend") == "1")
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.grantRuntimePermission(context.packageName, android.Manifest.permission.CAMERA)
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            automation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
+        val work = WorkManager.getInstance(context)
+        work.cancelAllWork().result.get()
+        val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putString(AppPrefs.KEY_CITY, "Тест").putString(AppPrefs.KEY_DEVICE_UUID, device)
+            .putString(AppPrefs.KEY_BACKEND_URL, base).putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN)
+            .putString(AppPrefs.KEY_MODE_CONFIRMED_DEVICE, device).commit()
+        val local = CookLocalSession.preferences(context)
+        local.edit().putBoolean("workflow_enabled", true).remove(CookOfflineSelectionCache.KEY).commit()
+        CookPendingShiftStore(local).clear()
+        val support = RemoteSupport.prefs(context)
+        val boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        assertTrue(boot >= 0)
+        support.edit().putBoolean("paused", true).putLong("ttl", 300).putInt("boot", boot)
+            .putLong("received", SystemClock.elapsedRealtime()).commit()
+        val enable = Request.Builder().url("$base/fixture/enable-capability").post(ByteArray(0).toRequestBody()).build()
+        PhotoApi.execute(enable).use { assertEquals(200, it.code) }
+        val api = CookWorkflowClient(base)
+        val binding = api.initializeBinding(device)
+        fun person(name: String, roles: List<String>) = requireNotNull(api.addManual(device,
+            UUID.randomUUID().toString(), name, roles, binding))
+        val oldCook = person("Старов Антон", listOf("cook", "operator"))
+        val newCook = person("Новиков Борис", listOf("cook", "operator"))
+        val zone = ZoneId.of(requireNotNull(binding.timezone))
+        fun confirm(cook: CookEmployee): CookShift {
+            val stamp = Instant.now().atZone(zone)
+            val shift = CookShift(UUID.randomUUID().toString(), 0, binding.branchRef, stamp.toLocalDate().toString(),
+                zone.id, stamp.toOffsetDateTime().toString(), listOf(cook.id), listOf(cook.id), cook.id)
+            return shift.copy(revision = requireNotNull(api.confirmShift(device, UUID.randomUUID().toString(), shift, binding)).second)
+        }
+        val oldShift = confirm(oldCook)
+        val cache = CookLocalSession.cache(context)
+        assertTrue(CookDeviceRosterCache(local).save(binding, listOf(oldCook)))
+        assertTrue(cache.saveRefreshed(CachedCookShift(binding, oldShift, listOf(oldCook)), oldCook.id))
+        val dao = PilotDatabase.get(context).photoRecordDao()
+        val existing = dao.getAllHistory().map { it.id }.toSet()
+        fun photos() = dao.getAllHistory().filter { it.id !in existing }
+        fun capture(cook: CookEmployee) {
+            await { runCatching {
+                onView(withText(cook.displayName)).check(matches(isDisplayed()))
+                onView(withId(R.id.captureButton)).check(matches(isEnabled()))
+                true
+            }.getOrDefault(false) }
+            onView(withId(R.id.captureButton)).perform(click())
+        }
+        fun author(raw: String) = JSONObject(raw).getJSONObject("cookRef").getString("id")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                capture(oldCook)
+                await { photos().size == 1 }
+            }
+            val oldPhoto = photos().single()
+            val oldContext = requireNotNull(oldPhoto.photoContext)
+            assertEquals(oldCook.id, author(oldContext))
+            assertTrue(oldPhoto.queuedInUploadQueue)
+            assertNull(oldPhoto.jobId)
+            val newShift = confirm(newCook)
+            assertEquals(oldShift.revision, newShift.revision)
+            assertEquals(oldShift.id, cache.load()?.shift?.id)
+            ActivityScenario.launch(MainActivity::class.java).use {
+                await { cache.load()?.shift?.id == newShift.id }
+                capture(newCook)
+                await { photos().size == 2 }
+                val newPhoto = photos().single { it.id != oldPhoto.id }
+                assertEquals(newCook.id, author(requireNotNull(newPhoto.photoContext)))
+                assertEquals(oldContext, photos().single { it.id == oldPhoto.id }.photoContext)
+            }
+        } finally {
+            work.cancelAllWork().result.get()
+            support.edit().remove("paused").commit()
+            for (photo in photos()) {
+                PhotoHistoryStore.removeByPhotoPath(context, photo.photoPath)
+                File(photo.photoPath).delete()
+            }
+        }
+    }
+
     @Test fun cameraPhotoKeepsSelectedCookThroughQueueAndBackend() {
         assumeTrue(BuildConfig.BUILD_TYPE == "localtest" &&
             InstrumentationRegistry.getArguments().getString("isolatedCookBackend") == "1")

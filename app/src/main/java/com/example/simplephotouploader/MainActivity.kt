@@ -498,6 +498,47 @@ class MainActivity : AppCompatActivity() {
         return CookShiftCache(CookLocalSession.preferences(applicationContext)).requiresAuthorReview(shift)
     }
 
+    private suspend fun recoverConfirmedDeviceShift(binding: CookBinding, identity: String) {
+        val previous = usableShift(binding, Instant.now()) ?: return
+        if (previous.offlineShift != null || isPizzaPhone()) return
+        val local = CookLocalSession.preferences(applicationContext)
+        val cache = CookShiftCache(local)
+        fun stillCurrent(): Boolean = !captures.busy && scopedBinding() == binding &&
+            CookLocalSession.identity(applicationContext) == identity && selectedShift == previous &&
+            !local.contains(CookOfflineSelectionCache.KEY) && !local.contains(CookPendingShiftStore.KEY) &&
+            cache.load() == previous
+        try {
+            if (!stillCurrent()) return
+            val device = CookLocalSession.offlineScope(applicationContext, binding)
+            val recovered = withContext(Dispatchers.IO) {
+                val client = CookWorkflowClient(device.backendUrl)
+                val shifts = client.shifts(device.deviceUuid, previous.shift.operationalDate) ?: return@withContext null
+                val newer = CookShiftPolicy.newerConfirmedShift(previous.shift, shifts, binding, Instant.now())
+                    ?: return@withContext null
+                if (client.initializeBinding(device.deviceUuid) != binding) return@withContext null
+                val participants = newer.cooks + newer.operators + newer.assistants + newer.trainees
+                val stored = previous.employees.associateBy { it.id }
+                val employees = if (participants.all { it in stored }) previous.employees
+                else client.roster(device.deviceUuid)?.takeIf { it.branchRef == binding.branchRef }?.employees
+                    ?: return@withContext null
+                val byId = employees.associateBy { it.id }
+                if (participants.any { id -> byId[id]?.let { CookEmployeeLabels.ambiguous(it, employees) } != false })
+                    return@withContext null
+                CachedCookShift(binding, newer, employees)
+            } ?: return
+            if (!stillCurrent()) return
+            val allowed = recovered.shift.photoAuthors(operatorPhotoAuthorEnabled, pizza = false).toSet()
+            val persistent = savedCurrentAuthor(recovered, allowed)
+            if (!cache.saveRefreshed(recovered, persistent)) return
+            selectedShift = recovered
+            cookSelection.setRoster(allowed, recovered.shift.mainCookId)
+            persistent?.let { cookSelection.selectPersistent(it) }
+            unassignedSelection.clear()
+            refreshCookPanel()
+        } catch (error: CancellationException) { throw error }
+        catch (_: Exception) { /* Offline capture keeps its last locally confirmed selection. */ }
+    }
+
     private suspend fun refreshCameraRoster() {
         val identity = CookLocalSession.identity(applicationContext)
         val binding = scopedBinding() ?: return
@@ -657,7 +698,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 botRosterCapabilityChecked = verified != null || unsupported
                 botRosterScope = verified?.takeIf { it.second && !isPizzaPhone() }?.let { expectedScope to it.first }
-                if (verified != null) applyLocalState(verified.first) else applyLocalState()
+                if (verified != null) {
+                    applyLocalState(verified.first)
+                    recoverConfirmedDeviceShift(verified.first, expectedScope)
+                } else applyLocalState()
             }
         }
     }
