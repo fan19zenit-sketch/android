@@ -18,6 +18,7 @@ import sys
 import tempfile
 import threading
 import time
+from uuid import uuid4
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
@@ -144,7 +145,7 @@ def choose_phone_mode(mode):
     raise RuntimeError('phone choice was not persisted for its UUID')
 
 
-def main(old_apk, candidate, pilot_mode=None, preconfirmed=False):
+def main(old_apk, candidate, pilot_mode=None, preconfirmed=False, preserve_shift=False):
     global SERIAL
     listed = command('adb', 'devices').splitlines()[1:]
     devices = [line.split()[0] for line in listed if line.endswith('\tdevice')]
@@ -209,11 +210,36 @@ def main(old_apk, candidate, pilot_mode=None, preconfirmed=False):
         adb('shell', 'rm', '-f', DB + '-wal', DB + '-shm')
         push_owned(old_db, DB, uid)
         expected = rows(old_db)
+        now = datetime.now(timezone.utc)
+        scope = '\0'.join(('http://127.0.0.1:18433', DEVICE, CITY))
+        digest = hashlib.sha256(scope.encode()).hexdigest()
+        shift = {'schema': 1, 'branch': 'fixture-branch', 'bindingRevision': 1, 'bindingTimezone': 'UTC',
+                 'shiftId': 'fixture-shift', 'shiftRevision': 1, 'day': now.date().isoformat(), 'timezone': 'UTC',
+                 'confirmedAt': (now - timedelta(minutes=1)).isoformat(), 'cooks': ['fixture-cook'],
+                 'operators': ['fixture-operator'], 'mainCook': 'fixture-cook',
+                 'employees': [{'id': 'fixture-cook', 'name': 'FixtureCook', 'roles': ['cook']},
+                               {'id': 'fixture-operator', 'name': 'FixtureOperator', 'roles': ['operator']}]}
+        shift_prefs = root / 'shift.xml'
+        shift_file = APP_ROOT + '/shared_prefs/cook_shift_' + digest + '.xml'
+        author = {'shift': shift['shiftId'], 'revision': shift['shiftRevision'], 'employee': 'fixture-cook'}
+        shift_prefs.write_text("<?xml version='1.0' encoding='utf-8' standalone='yes' ?><map>"
+                               '<boolean name="workflow_enabled" value="true" />'
+                               '<string name="confirmed_shift_v1">' + escape(json.dumps(shift)) + '</string>'
+                               '<string name="current_photo_author">' + escape(json.dumps(author)) + '</string></map>',
+                               encoding='utf8')
+        if preserve_shift:
+            push_owned(shift_prefs, shift_file, uid)
         adb('install', '-r', candidate)
         after = root / 'after-install-db'
         pull_database(after)
         if rows(after) != expected:
             raise RuntimeError('queue or history changed during installation')
+        if preserve_shift:
+            installed_shift = root / 'after-shift.xml'
+            adb('pull', shift_file, str(installed_shift))
+            if installed_shift.read_bytes() != shift_prefs.read_bytes():
+                raise RuntimeError('current shift or selected author changed during installation')
+            print('PRESERVED_EXISTING_SHIFT: confirmed roster and selected author byte-for-byte')
         saved_prefs = root / 'after-prefs.xml'
         adb('pull', PREFS, str(saved_prefs))
         for value in (CITY, DEVICE, 'preserve-me', 'http://127.0.0.1:18433'):
@@ -233,21 +259,8 @@ def main(old_apk, candidate, pilot_mode=None, preconfirmed=False):
             adb('shell', 'am', 'start', '-W', '-n', PACKAGE + '/com.example.simplephotouploader.MainActivity')
             choose_phone_mode(pilot_mode)
             adb('shell', 'am', 'force-stop', PACKAGE)
-        now = datetime.now(timezone.utc)
-        scope = '\0'.join(('http://127.0.0.1:18433', DEVICE, CITY))
-        digest = hashlib.sha256(scope.encode()).hexdigest()
-        shift = {'schema': 1, 'branch': 'fixture-branch', 'bindingRevision': 1, 'bindingTimezone': 'UTC',
-                 'shiftId': 'fixture-shift', 'shiftRevision': 1, 'day': now.date().isoformat(), 'timezone': 'UTC',
-                 'confirmedAt': (now - timedelta(minutes=1)).isoformat(), 'cooks': ['fixture-cook'],
-                 'operators': ['fixture-operator'], 'mainCook': 'fixture-cook',
-                 'employees': [{'id': 'fixture-cook', 'name': 'FixtureCook', 'roles': ['cook']},
-                               {'id': 'fixture-operator', 'name': 'FixtureOperator', 'roles': ['operator']}]}
-        shift_prefs = root / 'shift.xml'
-        shift_prefs.write_text("<?xml version='1.0' encoding='utf-8' standalone='yes' ?><map>"
-                               '<boolean name="workflow_enabled" value="true" />'
-                               '<string name="confirmed_shift_v1">' + escape(json.dumps(shift)) + '</string></map>',
-                               encoding='utf8')
-        push_owned(shift_prefs, APP_ROOT + '/shared_prefs/cook_shift_' + digest + '.xml', uid)
+        if not preserve_shift:
+            push_owned(shift_prefs, shift_file, uid)
         server = ThreadingHTTPServer(('127.0.0.1', 18433), Fixture)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -300,10 +313,15 @@ if __name__ == '__main__':
     parser.add_argument('mode', nargs='?', choices=('main', 'pizza'))
     parser.add_argument('fixture_city', nargs='?', choices=('Кадуй', 'Кириллов', 'Белозерск', 'Шексна'))
     parser.add_argument('--preconfirmed', action='store_true', help='preserve an already chosen phone mode')
+    parser.add_argument('--preserve-shift', action='store_true', help='seed a confirmed roster before installing the candidate')
     args = parser.parse_args()
     if (args.preconfirmed or args.fixture_city) and not args.mode:
         parser.error('a phone mode is required for a configured fixture')
     if args.mode:
         CITY = args.fixture_city or 'Кадуй'
         DEVICE += '-' + args.mode
-    main(args.old_apk, args.candidate, args.mode, args.preconfirmed)
+    if args.preserve_shift:
+        IDS = tuple(str(uuid4()) for _ in range(3))
+        HISTORY_ID = str(uuid4())
+        PHOTO_CONTENTS = {item: ('synthetic-photo-' + item).encode() for item in (*IDS, HISTORY_ID)}
+    main(args.old_apk, args.candidate, args.mode, args.preconfirmed, args.preserve_shift)
