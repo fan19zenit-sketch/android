@@ -86,16 +86,19 @@ class CookShiftWizardActivityTest {
         }
     }
 
-    @Test fun twoPeopleCanSelectSeparateOperatorAndCookWithoutAssistant() {
+    @Test fun threePeopleGoDirectlyFromCookCountToNames() {
         ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
             waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
-            waitFor("Сколько сотрудников?"); choose("2"); next()
+            waitFor("Сколько сотрудников?"); choose("3"); next()
             waitFor("Сколько операторов?"); choose("1"); next()
-            waitFor("Сколько поваров?"); choose("1"); next()
-            waitFor("Сколько помощников?"); choose("0"); next()
-            waitFor("Сколько стажёров?"); choose("0"); next()
+            waitFor("Сколько поваров?"); choose("2"); next()
+            waitFor("Выберите оператора 1")
+            onView(withText("Назад")).perform(scrollTo(), click())
+            waitFor("Сколько поваров?"); next()
             waitFor("Выберите оператора 1"); choose("Оператор 1"); next()
             waitFor("Выберите повара 1"); choose("Повар 1"); next()
+            waitFor("Выберите повара 2"); choose("Повар 2"); next()
+            waitFor("Кто основной повар?"); choose("Повар 1"); next()
             waitFor("Проверьте состав")
             onView(withText("Начать смену")).perform(scrollTo(), click())
             val deadline = SystemClock.elapsedRealtime() + 15_000
@@ -105,15 +108,32 @@ class CookShiftWizardActivityTest {
             }
             assertNotNull(saved)
             assertEquals(listOf("operator-1"), saved!!.shift.operators)
-            assertEquals(listOf("cook-1"), saved!!.shift.cooks)
+            assertEquals(listOf("cook-1", "cook-2"), saved!!.shift.cooks)
             assertEquals(emptyList<String>(), saved!!.shift.assistants)
+            assertEquals(emptyList<String>(), saved!!.shift.trainees)
+        }
+    }
+
+    @Test fun optionalRolesStayAvailableForThreePeopleWhenOperatorAlsoCooks() {
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("test_universal", true)
+        ActivityScenario.launch<CookShiftActivity>(intent).use {
+            waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
+            choose("3"); next(); choose("1"); next(); choose("2")
+            onView(withText(R.string.cook_shift_include_optional_roles)).perform(scrollTo(), click())
+            waitFor("Сколько помощников?"); choose("0"); next()
+            waitFor("Сколько стажёров?"); choose("1"); next()
+            choose("Повар 1"); next(); choose("Повар 1"); next(); choose("Повар 2"); next()
+            waitFor("Выберите стажёра 1"); choose("Стажёр 1"); next()
+            waitFor("Кто основной повар?"); choose("Повар 2"); next()
+            onView(withText("Оператор: Повар 1")).perform(scrollTo()).check(matches(isDisplayed()))
+            onView(withText("Стажёр: Стажёр 1")).perform(scrollTo()).check(matches(isDisplayed()))
         }
     }
 
     @Test fun traineeCanBePromotedInTheOperatorPicker() {
         ActivityScenario.launch<CookShiftActivity>(Intent(context, CookShiftActivity::class.java)).use {
             waitFor("Начать смену"); onView(withText("Начать смену")).perform(click())
-            choose("2"); next(); choose("1"); next(); choose("1"); next(); choose("0"); next(); choose("0"); next()
+            choose("2"); next(); choose("1"); next(); choose("1"); next()
             waitFor("Выберите оператора 1")
             onView(withText("Добавить стажёра")).perform(scrollTo(), click())
             onView(withText("Стажёр 1")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click())
@@ -131,12 +151,15 @@ class CookShiftWizardActivityTest {
         val people = listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")), CookEmployee("cook-2", "Повар 2", listOf("cook")))
         check(CookLocalSession.cache(context).save(CachedCookShift(binding, original, people)))
         val intent = Intent(context, CookShiftActivity::class.java).putExtra("shift_id", original.id).putExtra("revision", 1)
-            .putExtra("author_ids", arrayOf("cook-1")).putExtra("author_names", arrayOf("Повар 1")).putExtra("current_author", "cook-1")
+            .putExtra("author_ids", arrayOf("cook-1")).putExtra("current_author", "cook-1")
         ActivityScenario.launch<CookShiftActivity>(intent).use {
-            waitFor("Кто готовит дальше?")
+            waitFor("Сейчас на смене")
+            onView(withText(R.string.cook_shift_roster_title)).check(matches(isDisplayed()))
+            onView(withText(R.string.cook_shift_return_camera)).check(matches(isDisplayed()))
             onView(withText("Начать смену")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
-            onView(withText("Добавить в состав")).perform(click())
+            onView(withText(R.string.cook_shift_add_from_directory)).perform(scrollTo(), click())
             onView(withText("Повар")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click())
+            onView(withText("Новый сотрудник")).inRoot(isDialog()).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
             onView(withText("Повар 2")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click())
             val deadline = SystemClock.elapsedRealtime() + 15_000
             while (CookLocalSession.cache(context).load()?.shift?.revision == 1 && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
@@ -147,12 +170,15 @@ class CookShiftWizardActivityTest {
     }
 
     @Test fun activeShiftCreatesAndSelectsManualCookOfflineWithoutChangingOlderPhoto() =
-        checkManualMemberInActiveShift(false)
+        checkManualMemberInActiveShift("Повар", "cook")
 
     @Test fun activeShiftCreatesManualTraineeFromTheNameAndRoleForm() =
-        checkManualMemberInActiveShift(true)
+        checkManualMemberInActiveShift("Стажёр", "trainee")
 
-    private fun checkManualMemberInActiveShift(trainee: Boolean) {
+    @Test fun activeShiftCreatesManualOperatorFromTheNameAndRoleForm() =
+        checkManualMemberInActiveShift("Оператор", "operator")
+
+    private fun checkManualMemberInActiveShift(roleLabel: String, role: String) {
         val now = Instant.now().atZone(ZoneId.of("Europe/Moscow"))
         val binding = CookBinding("preview", 1, now.zone.id)
         val original = CookShift(UUID.randomUUID().toString(), 1, binding.branchRef, now.toLocalDate().toString(),
@@ -176,20 +202,13 @@ class CookShiftWizardActivityTest {
             val originalUploadId = PhotoHistoryStore.addQueued(context, olderFile.absolutePath, now.toInstant().toString(), oldContext,
                 captureDeviceUuid = scope.deviceUuid, captureBackendUrl = scope.backendUrl)
             val intent = Intent(context, CookShiftActivity::class.java).putExtra("shift_id", original.id).putExtra("revision", 1)
-                .putExtra("author_ids", arrayOf("cook-1", "cook-2")).putExtra("author_names", arrayOf("Повар 1", "Повар 2"))
+                .putExtra("author_ids", arrayOf("cook-1", "cook-2"))
                 .putExtra("current_author", "cook-2").putExtra("test_offline", true)
             ActivityScenario.launch<CookShiftActivity>(intent).use {
-                waitFor("Кто готовит дальше?")
-                val hint = if (trainee) {
-                    onView(withText("Добавить сотрудника")).perform(click())
-                    onView(withText("Стажёр")).inRoot(isDialog()).perform(click())
-                    "Фамилия и имя"
-                } else {
-                    onView(withText("Добавить в состав")).perform(click())
-                    onView(withText("Повар")).inRoot(isDialog()).perform(click())
-                    onView(withText("Новый сотрудник")).inRoot(isDialog()).perform(click())
-                    "Имя сотрудника"
-                }
+                waitFor("Сейчас на смене")
+                onView(withText(R.string.cook_shift_create_employee)).perform(scrollTo(), click())
+                onView(withText(roleLabel)).inRoot(isDialog()).perform(scrollTo(), click())
+                val hint = "Фамилия и имя"
                 onView(withHint(hint)).perform(replaceText("  ПОВАР 1  "), closeSoftKeyboard())
                 onView(withText("Добавить")).inRoot(isDialog()).perform(click())
                 onView(withHint(hint)).check(matches(hasErrorText(
@@ -206,10 +225,10 @@ class CookShiftWizardActivityTest {
                 val pendingPerson = database.queue().pendingEmployees(scope.backendUrl, scope.deviceUuid, binding.branchRef, binding.revision)
                     .single { employee -> employee.name == manualName }
                 assertEquals(person.id, pendingPerson.provisionalId)
-                assertEquals(listOf(if (trainee) "trainee" else "cook"), person.roles)
-                assertEquals(original.cooks.toSet() + if (trainee) emptySet() else setOf(person.id), updated.shift.cooks.toSet())
-                assertEquals(if (trainee) listOf(person.id) else emptyList(), updated.shift.trainees)
-                assertEquals(original.operators, updated.shift.operators)
+                assertEquals(listOf(role), person.roles)
+                assertEquals(original.cooks.toSet() + if (role == "cook") setOf(person.id) else emptySet(), updated.shift.cooks.toSet())
+                assertEquals(if (role == "trainee") listOf(person.id) else emptyList(), updated.shift.trainees)
+                assertEquals(original.operators.toSet() + if (role == "operator") setOf(person.id) else emptySet(), updated.shift.operators.toSet())
                 assertEquals(original.mainCookId, updated.shift.mainCookId)
                 val author = JSONObject(requireNotNull(local.getString(CookShiftCache.AUTHOR_KEY, null)))
                 assertEquals("cook-2", author.getString("employee"))
@@ -236,6 +255,25 @@ class CookShiftWizardActivityTest {
                 database.openHelper.writableDatabase.execSQL("DELETE FROM offline_employees WHERE provisionalId=?", arrayOf<Any>(it))
             }
             local.edit().remove(CookShiftCache.AUTHOR_KEY).commit()
+        }
+    }
+
+    @Test fun fullOperatorRoleIsVisibleButNotSelectable() {
+        val now = Instant.now().atZone(ZoneId.of("Europe/Moscow"))
+        val binding = CookBinding("preview", 1, now.zone.id)
+        val shift = CookShift("two-operators", 1, binding.branchRef, now.toLocalDate().toString(),
+            now.zone.id, now.minusSeconds(1).toOffsetDateTime().toString(),
+            listOf("cook-1"), listOf("operator-1", "operator-2"), "cook-1")
+        val people = listOf(CookEmployee("cook-1", "Повар 1", listOf("cook")),
+            CookEmployee("operator-1", "Оператор 1", listOf("operator")),
+            CookEmployee("operator-2", "Оператор 2", listOf("operator")))
+        check(CookLocalSession.cache(context).save(CachedCookShift(binding, shift, people)))
+        val intent = Intent(context, CookShiftActivity::class.java).putExtra("shift_id", shift.id).putExtra("revision", 1)
+        ActivityScenario.launch<CookShiftActivity>(intent).use {
+            waitFor("Сейчас на смене")
+            onView(withText(R.string.cook_shift_create_employee)).perform(scrollTo(), click())
+            onView(withText(context.getString(R.string.cook_shift_role_full, "Оператор"))).inRoot(isDialog())
+                .perform(scrollTo()).check(matches(org.hamcrest.Matchers.not(androidx.test.espresso.matcher.ViewMatchers.isEnabled())))
         }
     }
 

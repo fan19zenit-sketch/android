@@ -446,7 +446,6 @@ class MainActivity : AppCompatActivity() {
         if (snapshot != null && !needsRosterReview()) {
             val ids = authorCandidates(snapshot)
             putExtra("author_ids", ids.toTypedArray())
-            putExtra("author_names", ids.map { id -> CookEmployeeLabels.label(snapshot.employees.first { it.id == id }, snapshot.employees) }.toTypedArray())
             putExtra("current_author", cookSelection.persistentAuthor() ?: snapshot.shift.mainCookId)
             putExtra("shift_id", snapshot.shift.id)
             putExtra("revision", snapshot.shift.revision)
@@ -800,11 +799,9 @@ class MainActivity : AppCompatActivity() {
             })
         }
         if (binding?.timezone != null) {
-            val more = authorIds.filterNot { it in shown }.mapNotNull { id -> snapshot?.employees?.find { it.id == id } }
-                .filterNot { CookEmployeeLabels.ambiguous(it, snapshot!!.employees) }
             choices.addView(TextView(this).apply {
                 val density = resources.displayMetrics.density
-                text = if (source == "shared") "Совместно" else "Ещё"
+                text = if (source == "shared") getString(R.string.cook_author_shared) else "Ещё"
                 textSize = 13f; sushiFont(R.attr.sushiLabelFont)
                 setTextColor(android.graphics.Color.WHITE)
                 gravity = android.view.Gravity.CENTER
@@ -814,23 +811,43 @@ class MainActivity : AppCompatActivity() {
                 background = authorSurface(source == "shared")
                 isSelected = source == "shared"
                 setOnClickListener {
-                    val labels = more.map { CookEmployeeLabels.label(it, snapshot!!.employees) } +
-                        if (isPizzaPhone()) listOf("Состав пицца-цеха") else listOf("Совместно")
-                    AlertDialog.Builder(this@MainActivity).setTitle("Кто приготовил").setItems(labels.toTypedArray()) { _, i ->
-                        if (i < more.size) {
-                            if (isPizzaPhone() && snapshot != null) selectCurrentAuthor(snapshot, more[i].id)
-                            else cookSelection.selectOneShot(more[i].id)
-                        } else if (isPizzaPhone()) openShift() else {
-                            val kind = "shared"
-                            if (snapshot != null) cookSelection.selectUnassigned(kind)
-                            else unassignedSelection.select(kind, binding, CookLocalSession.identity(applicationContext), Instant.now())
-                        }
-                        refreshCookPanel()
-                    }.show()
+                    openAuthorSheet()
                 }
             })
         }
         maybePromptForShift()
+    }
+
+    private fun openAuthorSheet() {
+        val binding = scopedBinding()?.takeIf { it.timezone != null } ?: return
+        val scope = CookLocalSession.identity(applicationContext)
+        val snapshot = usableShift(binding, Instant.now())
+        if (needsRosterReview()) { openShift(); return }
+        val pizza = isPizzaPhone()
+        fun isCurrent() = scopedBinding() == binding && CookLocalSession.identity(applicationContext) == scope &&
+            usableShift(binding, Instant.now()) == snapshot && !needsRosterReview()
+        val people = snapshot?.let { current ->
+            authorCandidates(current).map { id ->
+                id to CookEmployeeLabels.label(current.employees.first { it.id == id }, current.employees)
+            }
+        }.orEmpty()
+        showCookAuthorDialog(this, people, cookSelection.current(),
+            sharedSelected = if (snapshot != null) cookSelection.currentSource() == "shared"
+                else unassignedSelection.current(binding, scope, Instant.now())?.choice == "shared",
+            onPick = { id ->
+                if (snapshot != null && isCurrent() && id in authorCandidates(snapshot)) {
+                    if (pizza) selectCurrentAuthor(snapshot, id)
+                    else { cookSelection.selectOneShot(id); refreshCookPanel() }
+                }
+            },
+            onShared = if (pizza) null else ({
+                if (isCurrent()) {
+                    if (snapshot != null) cookSelection.selectUnassigned("shared")
+                    else unassignedSelection.select("shared", binding, scope, Instant.now())
+                    refreshCookPanel()
+                }
+            }),
+            onPizzaShift = if (pizza) ({ openShift() }) else null)
     }
 
     private fun showPermissionError() {

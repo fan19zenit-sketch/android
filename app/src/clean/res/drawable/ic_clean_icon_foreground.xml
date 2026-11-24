@@ -4,16 +4,23 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="@color/clean_black"
-        android:pathData="M21,24c0,-6.1 4.9,-11 11,-11h25c17.1,0 31,13.9 31,31s-13.9,31 -31,31H32c-6.1,0 -11,-4.9 -11,-11z" />
-    <path
-        android:fillColor="@color/clean_icon_fg"
-        android:pathData="M38,38c-10.5,0 -19,8.5 -19,19s8.5,19 19,19 19,-8.5 19,-19 -8.5,-19 -19,-19zM38,47c5.5,0 10,4.5 10,10s-4.5,10 -10,10 -10,-4.5 -10,-10 4.5,-10 10,-10z" />
-    <path
-        android:fillColor="@color/clean_pink"
-        android:pathData="M55,49l31,-4 1.5,7.5 -31,4zM53,60l30,7 -1.6,7 -30,-7z" />
-    <path
-        android:fillColor="@color/clean_pink"
-        android:pathData="M38,52c-2.8,0 -5,2.2 -5,5s2.2,5 5,5 5,-2.2 5,-5 -2.2,-5 -5,-5z" />
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="18">
+        <clip-path android:pathData="M26,42C26,31.5 38.5,23.8 54,23.8S82,31.5 82,42V64C82,74.5 69.5,83.2 54,83.2S26,74.5 26,64Z" />
+        <path
+            android:fillColor="@color/clean_black"
+            android:pathData="M23,21H85V86H23Z" />
+        <path
+            android:strokeColor="@color/clean_icon_fg"
+            android:strokeWidth="2.5"
+            android:pathData="M32,50C26,55 37,58 31,63S37,71 31,76 36,85 30,90M41,50C35,55 46,58 40,63S46,71 40,76 45,85 39,90M50,50C44,55 55,58 49,63S55,71 49,76 54,85 48,90M59,50C53,55 64,58 58,63S64,71 58,76 63,85 57,90M68,50C62,55 73,58 67,63S73,71 67,76 72,85 66,90M77,50C71,55 82,58 76,63S82,71 76,76 81,85 75,90" />
+        <path
+            android:fillColor="@color/clean_icon_fg"
+            android:pathData="M29.2,42A24.8,15.7 0,1 0,78.8 42A24.8,15.7 0,1 0,29.2 42Z" />
+        <path
+            android:fillColor="@color/clean_icon_bg"
+            android:pathData="M39,41.8A15,10 0,1 0,69 41.8A15,10 0,1 0,39 41.8Z" />
+    </group>
 </vector>

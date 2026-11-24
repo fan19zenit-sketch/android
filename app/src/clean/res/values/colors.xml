@@ -8,8 +8,8 @@
     <color name="clean_text_primary">#000000</color>
     <color name="clean_text_secondary">#686866</color>
     <color name="clean_status_bg">#DE202529</color>
-    <color name="clean_icon_bg">#B93669</color>
-    <color name="clean_icon_fg">#FFFFFF</color>
+    <color name="clean_icon_bg">@color/clean_pink</color>
+    <color name="clean_icon_fg">#FCF7EC</color>
     <color name="clean_white_70">#DDFFFFFF</color>
     <color name="clean_rose">#FF8FBD</color>
     <color name="clean_success">#00CAAB</color>

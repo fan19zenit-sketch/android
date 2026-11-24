@@ -13,6 +13,7 @@ import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -57,14 +58,19 @@ class CookShiftScreenshotTest {
     private fun choose(value: String) = onView(allOf(withText(value), isAssignableFrom(RadioButton::class.java)))
         .perform(scrollTo(), click())
 
-    @Test fun captureProductWorkflow() {
+    @Test fun captureProductWorkflow() = captureWorkflow(cookPanelsOnly = false)
+
+    @Test fun captureCookPanels() = captureWorkflow(cookPanelsOnly = true)
+
+    private fun captureWorkflow(cookPanelsOnly: Boolean) {
         require(BuildConfig.BUILD_TYPE == "preview")
         val inst = InstrumentationRegistry.getInstrumentation()
         inst.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.CAMERA)
         if (android.os.Build.VERSION.SDK_INT >= 33) inst.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
         val prefs = context.getSharedPreferences(AppPrefs.PREFS, Context.MODE_PRIVATE)
         prefs.edit().putString(AppPrefs.KEY_CITY, "Шексна").putString(AppPrefs.KEY_BACKEND_URL, "http://127.0.0.1:9")
-            .putString(AppPrefs.KEY_DEVICE_UUID, "design-fixture").putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
+            .putString(AppPrefs.KEY_DEVICE_UUID, "design-fixture").putString(AppPrefs.KEY_MODE_CONFIRMED_DEVICE, "design-fixture")
+            .putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_MAIN).commit()
         val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Europe/Moscow"))
         val binding = CookBinding("design", 1, "Europe/Moscow")
         val args = InstrumentationRegistry.getArguments()
@@ -129,12 +135,21 @@ class CookShiftScreenshotTest {
                 onView(withText("Сидорова Мария")).perform(click()); save("12a-operator")
                 onView(withText("Петрова Анна")).perform(click()); save("12-one-shot")
                 onView(withText("Ещё")).perform(click()); save("13-other-authors")
-                onView(withText("Совместно")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); save("13b-shared")
+                onView(withContentDescription(R.string.cook_author_shared_help))
+                    .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(scrollTo(), click())
+                save("13a-shared-help")
+                onView(withText("Совместно")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(scrollTo(), click()); save("13b-shared")
                 onView(withText("Совместно")).perform(click())
                 onView(withText("Автор неизвестен")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist()); androidx.test.espresso.Espresso.pressBack()
-                onView(withText("Смена")).perform(click()); waitFor("Кто готовит дальше?"); save("11c-change")
-                onView(withText("Петрова Анна")).perform(click()); waitFor("Петрова Анна"); save("11d-persistent")
+                onView(withText("Смена")).perform(click()); waitFor("Сейчас на смене"); save("11c-change")
+                onView(withText(R.string.cook_shift_create_employee)).perform(scrollTo(), click())
+                androidx.test.espresso.Espresso.closeSoftKeyboard()
+                save("11e-new-employee")
+                onView(withText("Отмена")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click())
+                onView(withText(R.string.cook_shift_change_author)).perform(scrollTo(), click())
+                onView(withText("Петрова Анна")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); waitFor("Петрова Анна"); save("11d-persistent")
             }
+            if (cookPanelsOnly) return
             if (args.getString("check_landscape") != "true") {
                 prefs.edit().putString(AppPrefs.KEY_DEVICE_MODE, AppPrefs.DEVICE_MODE_PIZZA).commit()
                 val pizzaShift = shift.copy(cooks = listOf("first", "operator"), operators = emptyList())
@@ -199,7 +214,8 @@ class CookShiftScreenshotTest {
             waitFor("Сколько сотрудников?"); choose("3"); save("02-staff-count")
             next()
             waitFor("Сколько операторов?"); save("02b-operator-count"); choose("1"); next()
-            waitFor("Сколько поваров?"); choose("2"); save("02c-cook-count"); next()
+            waitFor("Сколько поваров?"); choose("2"); save("02c-cook-count")
+            onView(withText(R.string.cook_shift_include_optional_roles)).perform(scrollTo(), click())
             waitFor("Сколько помощников?"); save("02d-assistant-count"); choose("0"); next()
             waitFor("Сколько стажёров?"); save("02e-trainee-count"); choose("0"); next()
             waitFor("Выберите оператора 1"); onView(withText("Добавить стажёра")).perform(scrollTo(), click()); save("02e-add"); androidx.test.espresso.Espresso.pressBack(); choose("Сидорова Мария"); save("03-operator"); next()

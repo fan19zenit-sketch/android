@@ -45,6 +45,7 @@ class CookShiftActivity : AppCompatActivity() {
     private val operators = linkedSetOf<String>()
     private val trainees = linkedSetOf<String>()
     private var activeEdit: CookShift? = null
+    private var activePeople: List<CookEmployee> = emptyList()
     private var traineeCount = 0
     private val assistants = linkedSetOf<String>()
     private val selectedPeople = linkedSetOf<String>()
@@ -61,6 +62,7 @@ class CookShiftActivity : AppCompatActivity() {
     private var assistantCount = 0
     private var wizardChoice: String? = null
     private var wizard: CookShiftWizard? = null
+    private var lastCountStep = TRAINEE_COUNT_STEP
     private var branchTemplate: CookBranchShiftTemplate? = null
     private var branchTemplateEnabled = false
     private var templateRefresh: Job? = null
@@ -77,11 +79,13 @@ class CookShiftActivity : AppCompatActivity() {
     private data class LoadedRoster(val binding: CookBinding, val employees: List<CookEmployee>, val offline: Boolean,
                                     val template: CookBranchShiftTemplate? = null, val employeeVisibility: Boolean = false,
                                     val templateEnabled: Boolean = false)
+    private data class ShiftRoleOption(val label: String, val role: CookShiftWizard.Role, val hasRoom: Boolean)
 
     private val branded get() = BuildConfig.FLAVOR == "clean"
     private val ink get() = if (branded) getColor(R.color.sushi_ink) else Color.WHITE
     private val paper get() = if (branded) getColor(R.color.sushi_paper) else Color.rgb(17, 17, 17)
     private lateinit var footer: LinearLayout
+    private val managingShift get() = branded && intent.hasExtra("shift_id")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -254,8 +258,9 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun loadRoster() {
         content.removeAllViews()
-        content.addView(label("Смена", 30f))
+        content.addView(label(shiftTitle(), 30f))
         content.addView(label("Загрузка…", 16f))
+        if (managingShift) pinReturnToCamera()
         scope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
@@ -369,7 +374,10 @@ class CookShiftActivity : AppCompatActivity() {
                 }
                 if (previous?.binding == newBinding && CookShiftPolicy.usable(previous.shift, newBinding, previous.binding, Instant.now())) {
                     val shift = previous.shift
-                    if (shift.id == intent.getStringExtra("shift_id") && shift.revision == intent.getIntExtra("revision", -1)) activeEdit = shift
+                    if (shift.id == intent.getStringExtra("shift_id") && shift.revision == intent.getIntExtra("revision", -1)) {
+                        activeEdit = shift
+                        activePeople = previous.employees
+                    }
                     assistants.addAll(shift.assistants)
                     trainees.addAll(shift.trainees)
                     cooks.addAll(previous.shift.cooks.filter { id -> roster.any { it.id == id } })
@@ -381,17 +389,19 @@ class CookShiftActivity : AppCompatActivity() {
             }.onFailure { error ->
                 if (error is CancellationException) throw error
                 content.removeAllViews()
-                content.addView(label("Смена", 30f))
+                content.addView(label(shiftTitle(), 30f))
                 content.addView(label(error.message ?: "Не удалось загрузить сотрудников", 16f))
                 content.addView(action("Повторить") { loadRoster() })
             }
         }
     }
 
+    private fun shiftTitle() = if (managingShift) getString(R.string.cook_shift_roster_title) else "Смена"
+
     private fun render() {
         if (BuildConfig.FLAVOR == "clean" && !(preview && intent.getBooleanExtra("test_legacy_shift_ui", false))) {
             footer.removeAllViews()
-            if (intent.hasExtra("shift_id")) {
+            if (managingShift) {
                 renderActiveShift()
                 return
             }
@@ -505,19 +515,12 @@ class CookShiftActivity : AppCompatActivity() {
         CookShiftWizard.Role.TRAINEE -> "trainee"
     }
 
-    private fun pick(title: String, people: List<CookEmployee>, onNew: (() -> Unit)? = null, onPick: (CookEmployee) -> Unit) {
+    private fun pick(title: String, people: List<CookEmployee>, onPick: (CookEmployee) -> Unit) {
         val choices = people.filterNot { CookEmployeeLabels.ambiguous(it, employees) }
-        if (choices.isEmpty() && onNew == null) { showError("Нет доступных сотрудников"); return }
-        val labels = buildList {
-            if (onNew != null) add("Новый сотрудник")
-            addAll(choices.map { CookEmployeeLabels.label(it, employees) })
-        }
-        AlertDialog.Builder(this).setTitle(title).setItems(labels.toTypedArray()) { _, index ->
-            when {
-                onNew == null -> onPick(choices[index])
-                index == 0 -> onNew()
-                else -> onPick(choices[index - 1])
-            }
+        if (choices.isEmpty()) { showError("Нет доступных сотрудников"); return }
+        val labels = choices.map { CookEmployeeLabels.label(it, employees) }.toTypedArray()
+        AlertDialog.Builder(this).setTitle(title).setItems(labels) { _, index ->
+            onPick(choices[index])
         }.setNegativeButton("Отмена", null).show()
     }
 
@@ -554,28 +557,71 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun renderActiveShift() {
         content.removeAllViews()
+        content.gravity = Gravity.TOP
+        content.addView(label(shiftTitle(), 30f))
+        pinReturnToCamera()
         val shift = activeEdit
         if (shift == null) {
             content.addView(label("Состав изменился. Откройте его снова с камеры.", 18f))
-            content.addView(action("К камере") { finish() })
             return
         }
-        content.addView(label("Кто готовит дальше?", 24f))
-        val ids = intent.getStringArrayExtra("author_ids").orEmpty()
-        val names = intent.getStringArrayExtra("author_names").orEmpty()
-        if (ids.size == names.size) ids.forEachIndexed { index, id ->
-            content.addView(action(names[index], primary = id == intent.getStringExtra("current_author")) {
-                setResult(RESULT_OK, android.content.Intent().putExtra("author_id", id)
-                    .putExtra("shift_id", shift.id).putExtra("revision", shift.revision))
-                finish()
+        val byRole = listOf(
+            "Повар" to shift.cooks, "Оператор" to shift.operators,
+            "Помощник" to shift.assistants, "Стажёр" to shift.trainees
+        )
+        val members = byRole.flatMap { it.second }.toSet()
+        val people = (activePeople + employees).associateBy { it.id }
+        val directory = people.values.toList()
+        fun displayName(employee: CookEmployee) = CookEmployeeLabels.label(employee, directory)
+        content.addView(shiftSection(R.string.cook_shift_roster_members))
+        val roster = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(1), getColor(R.color.sushi_line))
+            }
+        }
+        members.forEachIndexed { index, id ->
+            if (index > 0) roster.addView(shiftDivider(section = false))
+            roster.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+                addView(TextView(context).apply {
+                    text = people[id]?.let(::displayName) ?: "Сотрудник"
+                    textSize = 16f; setTextColor(ink); sushiFont(R.attr.sushiLabelFont)
+                })
+                addView(TextView(context).apply {
+                    text = byRole.filter { id in it.second }.joinToString(" · ") { it.first }
+                    textSize = 13f; setTextColor(getColor(R.color.sushi_muted))
+                })
             })
         }
-        val members = (shift.cooks + shift.operators + shift.assistants + shift.trainees).toSet()
-        val roles = listOf(Triple("Повар", CookShiftWizard.Role.COOK, (if (pizzaMode) 2 else 4) - shift.cooks.size),
-            Triple("Оператор", CookShiftWizard.Role.OPERATOR, 2 - shift.operators.size),
-            Triple("Помощник", CookShiftWizard.Role.ASSISTANT, 2 - shift.assistants.size),
-            Triple("Стажёр", CookShiftWizard.Role.TRAINEE, 3 - shift.trainees.size)).filter { it.third > 0 && (!pizzaMode || it.second == CookShiftWizard.Role.COOK) }
-        if (members.size < 10 && roles.isNotEmpty()) {
+        content.addView(roster)
+        val authors = intent.getStringArrayExtra("author_ids").orEmpty().mapNotNull(people::get)
+            .filter { it.id in members && !CookEmployeeLabels.ambiguous(it, directory) }
+        val current = intent.getStringExtra("current_author") ?: shift.mainCookId
+        if (authors.isNotEmpty()) {
+            content.addView(shiftDivider())
+            content.addView(shiftSection(R.string.cook_shift_primary_author))
+            people[current]?.let { content.addView(label(displayName(it), 16f)) }
+            val alternatives = authors.filterNot { it.id == current }
+            if (alternatives.isNotEmpty()) content.addView(action(getString(R.string.cook_shift_change_author)) {
+                val choices = alternatives.map(::displayName).toTypedArray()
+                AlertDialog.Builder(this).setTitle(R.string.cook_shift_primary_author).setItems(choices) { _, index ->
+                    setResult(RESULT_OK, android.content.Intent().putExtra("author_id", alternatives[index].id)
+                        .putExtra("shift_id", shift.id).putExtra("revision", shift.revision))
+                    finish()
+                }.setNegativeButton(R.string.close, null).show()
+            }.apply { isEnabled = !busy })
+        }
+        val roles = listOf(ShiftRoleOption("Повар", CookShiftWizard.Role.COOK, shift.cooks.size < if (pizzaMode) 2 else 4),
+            ShiftRoleOption("Оператор", CookShiftWizard.Role.OPERATOR, shift.operators.size < 2),
+            ShiftRoleOption("Помощник", CookShiftWizard.Role.ASSISTANT, shift.assistants.size < 2),
+            ShiftRoleOption("Стажёр", CookShiftWizard.Role.TRAINEE, shift.trainees.size < 3))
+            .filter { !pizzaMode || it.role == CookShiftWizard.Role.COOK }
+        val available = roles.filter { it.hasRoom }
+        if (members.size < 10 && available.isNotEmpty()) {
             fun addToShift(role: CookShiftWizard.Role, person: CookEmployee) {
                 val currentBinding = binding
                 if (busy || !CookShiftPolicy.usable(shift, currentBinding, currentBinding, Instant.now())) {
@@ -595,21 +641,42 @@ class CookShiftActivity : AppCompatActivity() {
                 mainCook = shift.mainCookId
                 saveShift()
             }
-            content.addView(action("Добавить в состав") {
+            content.addView(shiftDivider())
+            content.addView(action(getString(R.string.cook_shift_add_from_directory)) {
                 fun choose(role: CookShiftWizard.Role) =
-                    pick("Кто присоединился?", employees.filter { it.id !in members && (pizzaMode || eligible(it, role)) },
-                        onNew = { addEmployee(manualDirectoryRole(role)) { person, _ -> addToShift(role, person) } },
+                    pick("Сотрудники из базы", employees.filter { it.id !in members && (pizzaMode || eligible(it, role)) },
                         onPick = { person -> addToShift(role, person) })
-                if (roles.size == 1) choose(roles.first().second) else AlertDialog.Builder(this).setTitle("Роль сотрудника")
-                    .setItems(roles.map { it.first }.toTypedArray()) { _, i -> choose(roles[i].second) }.show()
+                if (available.size == 1) choose(available.first().role) else AlertDialog.Builder(this).setTitle("Роль сотрудника")
+                    .setItems(available.map { it.label }.toTypedArray()) { _, i -> choose(available[i].role) }.show()
             }.apply { isEnabled = !busy })
-            content.addView(action("Добавить сотрудника") {
-                addEmployee(shiftRoles = roles.map { it.first to it.second }) { person, role ->
+            content.addView(action(getString(R.string.cook_shift_create_employee)) {
+                addEmployee(shiftRoles = roles) { person, role ->
                     addToShift(requireNotNull(role), person)
                 }
             }.apply { isEnabled = !busy })
         }
-        content.addView(action("К камере") { finish() })
+    }
+
+    private fun shiftSection(title: Int) = label(getString(title), 16f).apply {
+        sushiFont(R.attr.sushiLabelFont)
+        androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+    }
+
+    private fun shiftDivider(section: Boolean = true) = View(this).apply {
+        setBackgroundColor(getColor(R.color.sushi_line))
+        layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply {
+            if (section) topMargin = dp(14) else { marginStart = dp(14); marginEnd = dp(14) }
+        }
+    }
+
+    private fun pinReturnToCamera() {
+        footer.removeAllViews()
+        footer.setBackgroundColor(Color.rgb(244, 239, 233))
+        footer.setPadding(dp(18), dp(4), dp(18), dp(10))
+        footer.addView(action(getString(R.string.cook_shift_return_camera)) { finish() }.apply {
+            backgroundTintList = ColorStateList.valueOf(ink)
+            setTextColor(Color.WHITE)
+        })
     }
 
     private fun renderPizzaShift() {
@@ -690,10 +757,26 @@ class CookShiftActivity : AppCompatActivity() {
         if (offlineMode) content.addView(label("Нет сети", 16f, Color.rgb(255, 180, 210)))
         showTemplateChange()
         fun back(step: Int) { content.addView(action("Назад") { wizardChoice = null; wizardStep = step; render() }) }
-        fun counts(title: String, values: IntRange, selected: Int, onNext: (Int) -> Unit) {
+        fun startPicking(lastStep: Int) {
+            val draft = CookShiftWizard(staffCount)
+            if (runCatching { draft.setCounts(operatorCount, cookCount, assistantCount, traineeCount) }.isFailure) {
+                showError("Количество ролей не соответствует числу сотрудников")
+                return
+            }
+            lastCountStep = lastStep
+            wizard = draft; wizardChoice = null; wizardStep = 5; render()
+        }
+        fun counts(title: String, values: IntRange, selected: Int,
+                   onOptionalRoles: ((Int) -> Unit)? = null, onNext: (Int) -> Unit) {
             content.addView(label(title, 20f))
             if (wizardStep == 1) content.addView(label("Повара, операторы, помощники и стажёры", 16f))
             var choice = selected.coerceIn(values.first, values.last)
+            val optionalAction = onOptionalRoles?.let {
+                action(getString(R.string.cook_shift_include_optional_roles)) { it(choice) }
+            }
+            fun updateOptionalAction() {
+                optionalAction?.visibility = if (operatorCount + choice >= staffCount) View.VISIBLE else View.GONE
+            }
             content.addView(RadioGroup(this).apply {
                 val visibleCounts = if (wizardStep == TRAINEE_COUNT_STEP) 0..3 else values
                 visibleCounts.forEach { number ->
@@ -701,7 +784,7 @@ class CookShiftActivity : AppCompatActivity() {
                         id = View.generateViewId(); text = number.toString(); setTextColor(ink)
                         textSize = 20f; minHeight = dp(48); buttonTintList = choiceTint()
                         isChecked = number == choice
-                        setOnClickListener { choice = number }
+                        setOnClickListener { choice = number; updateOptionalAction() }
                         styleChoice()
                         isEnabled = number in values
                         if (!isEnabled) alpha = .36f
@@ -709,6 +792,7 @@ class CookShiftActivity : AppCompatActivity() {
                 }
                 arrangeCounts()
             })
+            optionalAction?.let { updateOptionalAction(); content.addView(it) }
             content.addView(action("Далее", primary = true) { onNext(choice) })
         }
         when (wizardStep) {
@@ -734,8 +818,14 @@ class CookShiftActivity : AppCompatActivity() {
                 back(1); return
             }
             3 -> {
-                counts("Сколько поваров?", maxOf(1, staffCount - operatorCount - 5)..minOf(4, staffCount), cookCount) {
-                    cookCount = it; wizardStep = 4; render()
+                val values = maxOf(1, staffCount - operatorCount - 5)..minOf(4, staffCount)
+                fun showOptionalRoles(count: Int) { cookCount = count; wizardStep = 4; render() }
+                counts("Сколько поваров?", values, cookCount, onOptionalRoles = ::showOptionalRoles) {
+                    if (operatorCount + it < staffCount) showOptionalRoles(it)
+                    else {
+                        cookCount = it; assistantCount = 0; traineeCount = 0
+                        startPicking(lastStep = 3)
+                    }
                 }
                 back(2); return
             }
@@ -748,10 +838,7 @@ class CookShiftActivity : AppCompatActivity() {
             TRAINEE_COUNT_STEP -> {
                 counts("Сколько стажёров?", maxOf(0, staffCount - operatorCount - cookCount - assistantCount)..minOf(3, staffCount - maxOf(operatorCount, cookCount, assistantCount)), traineeCount) {
                     traineeCount = it
-                    val next = CookShiftWizard(staffCount)
-                    if (runCatching { next.setCounts(operatorCount, cookCount, assistantCount, traineeCount) }.isFailure) {
-                        showError("Количество ролей не соответствует числу сотрудников")
-                    } else { wizard = next; wizardChoice = null; wizardStep = 5; render() }
+                    startPicking(lastStep = TRAINEE_COUNT_STEP)
                 }
                 back(4); return
             }
@@ -808,7 +895,7 @@ class CookShiftActivity : AppCompatActivity() {
             })
             content.addView(action("Назад") {
                 wizardChoice = null
-                if (index == 0) { wizard = null; wizardStep = if (staffCount == 1) 1 else TRAINEE_COUNT_STEP }
+                if (index == 0) { wizard = null; wizardStep = if (staffCount == 1) 1 else lastCountStep }
                 else { wizardChoice = draft.selected(roles[index - 1]).last(); draft.removeLast(roles[index - 1]); wizardStep-- }
                 render()
             })
@@ -893,6 +980,7 @@ class CookShiftActivity : AppCompatActivity() {
                 template.assistants.forEach { draft.select(CookShiftWizard.Role.ASSISTANT, it) }
             }
             wizard = draft
+            lastCountStep = TRAINEE_COUNT_STEP
             appliedTemplateRevision = template.revision
             wizardChoice = null
             wizardStep = 5 + if (staffCount == 1) 1 else operatorCount + cookCount + assistantCount + traineeCount
@@ -983,15 +1071,29 @@ class CookShiftActivity : AppCompatActivity() {
         }
     }
 
-    private fun addEmployee(directoryRole: String? = null, shiftRoles: List<Pair<String, CookShiftWizard.Role>> = emptyList(),
+    private fun addEmployee(directoryRole: String? = null, shiftRoles: List<ShiftRoleOption> = emptyList(),
                             onAdded: ((CookEmployee, CookShiftWizard.Role?) -> Unit)? = null) {
         val name = EditText(this).apply {
             hint = if (shiftRoles.isEmpty()) "Имя сотрудника" else "Фамилия и имя"
             setSingleLine()
+            if (branded) {
+                textSize = 16f
+                setTextColor(ink)
+                setHintTextColor(getColor(R.color.sushi_muted))
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS or android.text.InputType.TYPE_TEXT_VARIATION_PERSON_NAME
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(12).toFloat()
+                    setColor(paper)
+                    setStroke(dp(1), getColor(R.color.sushi_muted))
+                }
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+                minHeight = dp(48)
+            }
         }
         val choices = arrayOf("Повар / помощник", "Оператор")
         val selected = booleanArrayOf(true, false)
-        var shiftRole = shiftRoles.singleOrNull()?.second
+        var shiftRole = shiftRoles.singleOrNull { it.hasRoom }?.role
         val title = when {
             directoryRole == "trainee" -> "Новый стажёр"
             directoryRole != null || shiftRoles.isNotEmpty() -> "Новый сотрудник"
@@ -999,21 +1101,27 @@ class CookShiftActivity : AppCompatActivity() {
         }
         val builder = AlertDialog.Builder(this).setTitle(title)
         if (shiftRoles.isNotEmpty()) {
-            builder.setView(LinearLayout(this).apply {
+            val form = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), 0, dp(20), 0)
+                setPadding(dp(20), dp(8), dp(20), 0)
                 addView(name)
                 addView(RadioGroup(this@CookShiftActivity).apply {
-                    shiftRoles.forEach { (label, role) ->
+                    shiftRoles.forEach { (label, role, hasRoom) ->
                         addView(RadioButton(this@CookShiftActivity).apply {
                             id = View.generateViewId()
-                            text = label
+                            text = if (hasRoom) label else getString(R.string.cook_shift_role_full, label)
+                            textSize = 16f
+                            minHeight = dp(48)
+                            setTextColor(if (hasRoom) ink else getColor(R.color.sushi_muted))
+                            buttonTintList = choiceTint()
+                            isEnabled = hasRoom
                             isChecked = role == shiftRole
                             setOnClickListener { shiftRole = role }
                         })
                     }
                 })
-            })
+            }
+            builder.setView(ScrollView(this).apply { addView(form) })
             name.filters = arrayOf(android.text.InputFilter.LengthFilter(256))
         } else if (directoryRole == null) {
             builder.setView(name)
@@ -1024,7 +1132,19 @@ class CookShiftActivity : AppCompatActivity() {
         }
         val dialog = builder.setNegativeButton("Отмена", null).setPositiveButton("Добавить", null).create()
         dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val submit = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            if (branded) {
+                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).apply {
+                    setTextColor(ink)
+                    sushiFont(R.attr.sushiLabelFont)
+                }
+                submit.apply {
+                    setTextColor(ink)
+                    sushiFont(R.attr.sushiLabelFont)
+                    backgroundTintList = ColorStateList.valueOf(getColor(R.color.sushi_pink))
+                }
+            }
+            submit.setOnClickListener {
                 val text = name.text.toString().trim().replace(Regex("\\s+"), " ")
                 val assignedRole = shiftRole
                 val roles = when {
