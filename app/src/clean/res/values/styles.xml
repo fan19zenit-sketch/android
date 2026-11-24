@@ -1,4 +1,8 @@
 <resources>
+    <style name="ShapeAppearance.Clean.CameraHistory" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
     <style name="ShapeAppearance.Clean.HistoryThumbnail" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">14dp</item>
