@@ -3,6 +3,7 @@ package com.example.simplephotouploader
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.widget.Button
 import android.widget.RadioButton
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -16,10 +17,12 @@ import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.matcher.ViewMatchers.hasErrorText
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.isSelected
 import androidx.test.espresso.matcher.ViewMatchers.withHint
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.not
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -153,7 +156,7 @@ class CookShiftWizardActivityTest {
         val intent = Intent(context, CookShiftActivity::class.java).putExtra("shift_id", original.id).putExtra("revision", 1)
             .putExtra("author_ids", arrayOf("cook-1")).putExtra("current_author", "cook-1")
         ActivityScenario.launch<CookShiftActivity>(intent).use {
-            waitFor("Сейчас на смене")
+            waitFor("Основной повар · Оператор")
             onView(withText(R.string.cook_shift_roster_title)).check(matches(isDisplayed()))
             onView(withText(R.string.cook_shift_return_camera)).check(matches(isDisplayed()))
             onView(withText("Начать смену")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
@@ -205,9 +208,14 @@ class CookShiftWizardActivityTest {
                 .putExtra("author_ids", arrayOf("cook-1", "cook-2"))
                 .putExtra("current_author", "cook-2").putExtra("test_offline", true)
             ActivityScenario.launch<CookShiftActivity>(intent).use {
-                waitFor("Сейчас на смене")
+                waitFor("Основной повар")
                 onView(withText(R.string.cook_shift_create_employee)).perform(scrollTo(), click())
-                onView(withText(roleLabel)).inRoot(isDialog()).perform(scrollTo(), click())
+                val otherRole = if (role == "cook") "Помощник" else "Повар"
+                val otherRoleButton = onView(withText(otherRole)).inRoot(isDialog())
+                otherRoleButton.perform(scrollTo(), click()).check(matches(isSelected()))
+                onView(withText(roleLabel)).inRoot(isDialog()).perform(scrollTo(), click()).check(matches(allOf(
+                    isAssignableFrom(Button::class.java), not(isAssignableFrom(RadioButton::class.java)), isSelected())))
+                otherRoleButton.check(matches(not(isSelected())))
                 val hint = "Фамилия и имя"
                 onView(withHint(hint)).perform(replaceText("  ПОВАР 1  "), closeSoftKeyboard())
                 onView(withText("Добавить")).inRoot(isDialog()).perform(click())
@@ -270,7 +278,7 @@ class CookShiftWizardActivityTest {
         check(CookLocalSession.cache(context).save(CachedCookShift(binding, shift, people)))
         val intent = Intent(context, CookShiftActivity::class.java).putExtra("shift_id", shift.id).putExtra("revision", 1)
         ActivityScenario.launch<CookShiftActivity>(intent).use {
-            waitFor("Сейчас на смене")
+            waitFor(context.getString(R.string.cook_shift_create_employee))
             onView(withText(R.string.cook_shift_create_employee)).perform(scrollTo(), click())
             onView(withText(context.getString(R.string.cook_shift_role_full, "Оператор"))).inRoot(isDialog())
                 .perform(scrollTo()).check(matches(org.hamcrest.Matchers.not(androidx.test.espresso.matcher.ViewMatchers.isEnabled())))

@@ -9,7 +9,7 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
+import android.widget.Toast
 import kotlinx.coroutines.*
 import java.text.DateFormat
 import java.util.Date
@@ -44,15 +44,23 @@ class SupportActivity : AppCompatActivity() {
                 }
             }
         }
-        findViewById<Button>(R.id.supportShare).setOnClickListener {
+        findViewById<Button>(R.id.supportShare).setOnClickListener { button ->
+            button.isEnabled = false
+            val share = button as Button
+            share.setText(R.string.diagnostics_preparing)
             scope.launch {
-                runCatching {
+                try {
                     val report = withContext(Dispatchers.IO) { DiagnosticJournal.export(applicationContext) }
-                    val uri = FileProvider.getUriForFile(this@SupportActivity, "$packageName.updates", report)
-                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/json")
-                        .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                    startActivity(Intent.createChooser(DiagnosticShare.intent(this@SupportActivity, report),
                         getString(R.string.support_share)))
-                }.onFailure { showUpdateError() }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    Toast.makeText(this@SupportActivity, R.string.diagnostics_share_failed, Toast.LENGTH_LONG).show()
+                } finally {
+                    share.isEnabled = true
+                    share.setText(R.string.support_share)
+                }
             }
         }
         findViewById<Button>(R.id.supportUpdate).setOnClickListener { installUpdate() }
@@ -66,7 +74,9 @@ class SupportActivity : AppCompatActivity() {
                 val info = withContext(Dispatchers.IO) { RemoteSupport.diagnostics(this@SupportActivity) }
                 val prefs = RemoteSupport.prefs(this@SupportActivity)
                 val synced = prefs.getLong("last_sync", 0)
-                findViewById<TextView>(R.id.supportDevice).text = getString(R.string.support_device,
+                findViewById<TextView>(R.id.supportDevice).text = if (BuildConfig.FLAVOR == "clean") {
+                    getString(R.string.app_version, BuildConfig.VERSION_NAME)
+                } else getString(R.string.support_device,
                     BuildConfig.VERSION_NAME, info.getString("manufacturer"), info.getString("model"),
                     Build.VERSION.RELEASE, info.getInt("page_size") / 1024)
                 findViewById<TextView>(R.id.supportQueue).text = getString(R.string.support_queue,
@@ -132,11 +142,11 @@ class SupportActivity : AppCompatActivity() {
                         showUpdateError()
                     } finally { downloading = false }
                 }
-            }.show()
+            }.showPhotoSheet()
     }
 
     private fun showUpdateError() {
-        AlertDialog.Builder(this).setMessage(R.string.support_update_failed).setPositiveButton(R.string.close, null).show()
+        AlertDialog.Builder(this).setMessage(R.string.support_update_failed).setPositiveButton(R.string.close, null).showPhotoSheet()
     }
 
     override fun onPause() { refresh?.cancel(); super.onPause() }

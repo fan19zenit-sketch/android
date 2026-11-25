@@ -7,7 +7,6 @@
         android:textColor="@color/clean_text_primary" />
         <Button android:id="@id/historyMenu" style="@style/Widget.MaterialComponents.Button.TextButton" android:layout_width="48dp" android:layout_height="48dp" android:minWidth="0dp" android:padding="0dp" android:text="⋯" android:textSize="22sp" android:contentDescription="Меню журнала" />
     </LinearLayout>
-    <include layout="@layout/history_actions" />
     <TextView android:id="@+id/tvHistorySubheader" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="@string/history_loading"
         android:textColor="@color/clean_text_secondary" android:textSize="13sp" />

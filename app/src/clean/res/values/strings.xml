@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="camera_shift_required">Нажмите «Смена», чтобы начать съёмку</string>
     <string name="clean_setup_title">Фото в чистоту</string>
     <string name="clean_city_label">Ваш город</string>
     <string name="clean_setup_hint">Если город уже есть в системе, приложение само подтянет нужный чат.</string>

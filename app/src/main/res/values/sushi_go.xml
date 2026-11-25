@@ -6,6 +6,16 @@
     <color name="sushi_mint">#00CAAB</color>
     <color name="sushi_line">#D2C7BE</color>
     <color name="sushi_muted">#5C524C</color>
+    <color name="photo_background">#111013</color>
+    <color name="photo_panel">#201B20</color>
+    <color name="photo_tile">#302930</color>
+    <color name="photo_line">#52434E</color>
+    <color name="photo_text">#FFF7FB</color>
+    <color name="photo_muted">#CBBCC6</color>
+    <color name="photo_selected">#4B293E</color>
+    <color name="photo_on_pink">#20101B</color>
+    <color name="photo_success_surface">#16352F</color>
+    <color name="photo_success_text">#83E4D2</color>
     <dimen name="sushi_gutter">18dp</dimen>
     <dimen name="sushi_radius">14dp</dimen>
     <item name="shiftShortcut" type="id" />

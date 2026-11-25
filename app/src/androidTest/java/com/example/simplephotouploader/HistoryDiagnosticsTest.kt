@@ -6,9 +6,11 @@ import android.net.Uri
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withId
+import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -73,8 +75,8 @@ class HistoryDiagnosticsTest {
             prefs.edit().putString("update", update.toString()).putLong("last_sync", System.currentTimeMillis()).commit()
             ActivityScenario.launch(HistoryActivity::class.java).use {
                 onView(withId(R.id.historyMenu)).perform(androidx.test.espresso.action.ViewActions.click())
-                onView(withId(R.id.btnSupport)).check(matches(isDisplayed()))
-                onView(withId(R.id.btnAvailableUpdate)).check(matches(isDisplayed()))
+                onView(withText(R.string.diagnostics_share)).inRoot(isDialog()).check(matches(isDisplayed()))
+                onView(withText(context.getString(R.string.support_install, "next"))).inRoot(isDialog()).check(matches(isDisplayed()))
             }
         } finally {
             prefs.edit().putString("update", previousUpdate).putLong("last_sync", previousSync).commit()

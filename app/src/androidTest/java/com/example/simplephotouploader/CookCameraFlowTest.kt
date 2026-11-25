@@ -7,6 +7,7 @@ import android.widget.RadioButton
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.Espresso.pressBack
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
@@ -16,8 +17,11 @@ import androidx.test.espresso.matcher.ViewMatchers.isEnabled
 import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
-import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.hasSibling
+import androidx.test.espresso.matcher.ViewMatchers.hasDescendant
+import androidx.test.espresso.matcher.ViewMatchers.isChecked
+import androidx.test.espresso.matcher.ViewMatchers.withParent
 import androidx.test.espresso.matcher.ViewMatchers.withTagValue
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -109,6 +113,9 @@ class CookCameraFlowTest {
         .perform(scrollTo(), click())
 
     private fun next() = onView(withText("Далее")).perform(scrollTo(), click())
+
+    private fun primaryCookDot(name: String) = onView(allOf(isAssignableFrom(RadioButton::class.java),
+        withParent(hasDescendant(withText(name)))))
 
     private fun startManualShift() = ActivityScenario.launch<MainActivity>(
         Intent(context, MainActivity::class.java).putExtra("test_shift_clock_ms",
@@ -210,7 +217,7 @@ class CookCameraFlowTest {
         }
     }
 
-    @Test fun moreListsPinnedAuthorsAndSharedHelpDoesNotSelectAnAuthor() {
+    @Test fun moreListsPinnedCooksWithoutJointCapture() {
         val dao = PilotDatabase.get(context).photoRecordDao()
         cameraWithActiveShift().use {
             await { selectedAuthor("Повар 1") && cameraReady() }
@@ -218,17 +225,12 @@ class CookCameraFlowTest {
             for (name in listOf("Повар 1", "Повар 2", "Оператор 1")) {
                 onView(withText(name)).inRoot(isDialog()).perform(scrollTo()).check(matches(isDisplayed()))
             }
-            onView(withContentDescription(R.string.cook_author_shared_help)).inRoot(isDialog()).perform(scrollTo(), click())
-            onView(withText(R.string.cook_author_shared_detail)).inRoot(isDialog()).perform(scrollTo()).check(matches(isDisplayed()))
-            onView(withText(R.string.close)).inRoot(isDialog()).perform(scrollTo(), click())
-            assertTrue(selectedAuthor("Повар 1"))
-            onView(withText("Ещё")).perform(click())
-            onView(withText(R.string.cook_author_shared)).inRoot(isDialog()).perform(scrollTo(), click())
+            onView(withText("Совместно")).inRoot(isDialog()).check(doesNotExist())
+            onView(withText("Повар 2")).inRoot(isDialog()).perform(scrollTo(), click())
             onView(withId(R.id.captureButton)).perform(click())
             await { newPhotos(dao).size == 1 && selectedAuthor("Повар 1") }
             val context = JSONObject(newPhotos(dao).single().photoContext!!)
-            assertEquals("shared", context.getString("selectionSource"))
-            assertTrue(context.isNull("cookRef"))
+            assertEquals("cook-2", context.getJSONObject("cookRef").getString("id"))
         }
     }
 
@@ -237,11 +239,20 @@ class CookCameraFlowTest {
         cameraWithActiveShift().use { scenario ->
             await { selectedAuthor("Повар 1") && cameraReady() }
             onView(withText("Смена")).perform(click())
-            await { visible("Сейчас на смене") }
+            await { visible("Основной повар") }
+            onView(withText("Сейчас на смене")).check(doesNotExist())
             onView(withText("Начать смену")).check(doesNotExist())
-            onView(withText(R.string.cook_shift_change_author)).perform(scrollTo(), click())
-            onView(withText("Повар 2")).inRoot(isDialog()).perform(click())
+            primaryCookDot("Повар 1").check(matches(isChecked()))
+            primaryCookDot("Повар 2").perform(scrollTo(), click()).check(matches(isChecked()))
+            primaryCookDot("Повар 1").check(matches(org.hamcrest.Matchers.not(isChecked())))
+            onView(allOf(withText("Основной повар"), hasSibling(withText("Повар 2")))).check(matches(isDisplayed()))
+            onView(withText(R.string.cook_shift_return_camera)).perform(click())
             await { selectedAuthor("Повар 2") }
+            onView(withText("Смена")).perform(click())
+            await { visible("Основной повар") }
+            onView(allOf(withText("Основной повар"), hasSibling(withText("Повар 2")))).check(matches(isDisplayed()))
+            pressBack()
+            await { cameraReady() }
             onView(withId(R.id.captureButton)).perform(click())
             await { newPhotos(dao).isNotEmpty() && cameraReady() }
             scenario.recreate()
@@ -271,10 +282,10 @@ class CookCameraFlowTest {
                 await { visible("Повар 2") && cameraReady() }
                 onView(withText("Ещё")).perform(click())
                 onView(withText("Состав пицца-цеха")).inRoot(isDialog()).perform(scrollTo(), click())
-                await { visible("Сейчас на смене") }
-                onView(withText(R.string.cook_shift_change_author)).perform(scrollTo(), click())
-                onView(withText("Повар 2")).inRoot(isDialog()).perform(click())
-                await { selectedAuthor("Повар 2") }
+                await { visible("Основной повар") }
+                primaryCookDot("Повар 2").perform(scrollTo(), click()).check(matches(isChecked()))
+                onView(withText(R.string.cook_shift_return_camera)).perform(click())
+                await { selectedAuthor("Повар 2") && cameraReady() }
                 assertEquals("cook-2", JSONObject(CookLocalSession.preferences(context)
                     .getString("current_photo_author", null)!!).getString("employee"))
                 onView(withId(R.id.captureButton)).perform(click())

@@ -105,7 +105,7 @@
                 android:minHeight="58dp"
                 android:text="@string/clean_save_button"
                 android:textAllCaps="false"
-                android:textColor="@android:color/white"
+                android:textColor="@color/photo_on_pink"
                 android:textSize="16sp"
                 android:textStyle="bold" />
         </LinearLayout>

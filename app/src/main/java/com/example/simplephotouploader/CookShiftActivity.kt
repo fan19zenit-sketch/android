@@ -46,6 +46,7 @@ class CookShiftActivity : AppCompatActivity() {
     private val trainees = linkedSetOf<String>()
     private var activeEdit: CookShift? = null
     private var activePeople: List<CookEmployee> = emptyList()
+    private var pickedPrimaryCook: String? = null
     private var traineeCount = 0
     private val assistants = linkedSetOf<String>()
     private val selectedPeople = linkedSetOf<String>()
@@ -82,15 +83,15 @@ class CookShiftActivity : AppCompatActivity() {
     private data class ShiftRoleOption(val label: String, val role: CookShiftWizard.Role, val hasRoom: Boolean)
 
     private val branded get() = BuildConfig.FLAVOR == "clean"
-    private val ink get() = if (branded) getColor(R.color.sushi_ink) else Color.WHITE
-    private val paper get() = if (branded) getColor(R.color.sushi_paper) else Color.rgb(17, 17, 17)
+    private val ink get() = if (branded) getColor(R.color.photo_text) else Color.WHITE
+    private val paper get() = if (branded) getColor(R.color.photo_background) else Color.rgb(17, 17, 17)
     private lateinit var footer: LinearLayout
     private val managingShift get() = branded && intent.hasExtra("shift_id")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pickedPrimaryCook = savedInstanceState?.getString("picked_primary_cook")
         window.statusBarColor = paper
-        if (branded) window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         window.navigationBarColor = Color.rgb(17, 17, 17)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -109,6 +110,11 @@ class CookShiftActivity : AppCompatActivity() {
             addView(ScrollView(this@CookShiftActivity).apply { addView(footer) })
         })
         loadRoster()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("picked_primary_cook", pickedPrimaryCook)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
@@ -192,21 +198,22 @@ class CookShiftActivity : AppCompatActivity() {
             if (BuildConfig.FLAVOR == "clean") sushiFont(R.attr.sushiHeadingFont)
             else setTypeface(typeface, Typeface.BOLD)
         }
-        setTextColor(if (branded && color != ink) getColor(R.color.sushi_muted) else color)
+        setTextColor(if (branded && color != ink) getColor(R.color.photo_muted) else color)
         setPadding(0, dp(12), 0, dp(8))
     }
 
     private fun choiceTint() = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-        if (branded) intArrayOf(ink, getColor(R.color.sushi_muted)) else intArrayOf(Color.rgb(224, 83, 153), Color.GRAY))
+        if (branded) intArrayOf(getColor(R.color.sushi_pink), getColor(R.color.photo_muted)) else intArrayOf(Color.rgb(224, 83, 153), Color.GRAY))
 
     private fun RadioButton.styleChoice() {
         if (BuildConfig.FLAVOR != "clean") return
-        fun card(color: Int) = GradientDrawable().apply {
+        fun card(color: Int, selected: Boolean = false) = GradientDrawable().apply {
             cornerRadius = dp(12).toFloat(); setColor(color)
+            if (selected) setStroke(dp(2), getColor(R.color.sushi_pink))
         }
         background = StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_checked), card(getColor(R.color.sushi_pink)))
-            addState(intArrayOf(), card(Color.rgb(244, 239, 233)))
+            addState(intArrayOf(android.R.attr.state_checked), card(getColor(R.color.photo_selected), selected = true))
+            addState(intArrayOf(), card(getColor(R.color.photo_tile)))
         }
         buttonDrawable = null
         sushiFont(R.attr.sushiLabelFont)
@@ -233,15 +240,9 @@ class CookShiftActivity : AppCompatActivity() {
         setTextColor(ink)
         if (BuildConfig.FLAVOR == "clean") {
             tag = if (primary) "primary-action" else null
-            setTextColor(if (primary && (wizardStep != 0 || pizzaMode)) Color.WHITE else ink)
-            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(Color.WHITE) }
-            backgroundTintList = ColorStateList(
-                arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-                intArrayOf(getColor(R.color.sushi_line), if (primary && wizardStep == 0 && !pizzaMode) getColor(R.color.sushi_pink) else if (primary) ink else Color.rgb(239, 232, 224)))
+            stylePhotoButton(primary)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
-            stateListAnimator = null
-            sushiFont(R.attr.sushiLabelFont)
         } else {
             backgroundTintList = ColorStateList.valueOf(if (primary) Color.rgb(186, 56, 127) else Color.rgb(50, 50, 50))
         }
@@ -518,10 +519,8 @@ class CookShiftActivity : AppCompatActivity() {
     private fun pick(title: String, people: List<CookEmployee>, onPick: (CookEmployee) -> Unit) {
         val choices = people.filterNot { CookEmployeeLabels.ambiguous(it, employees) }
         if (choices.isEmpty()) { showError("Нет доступных сотрудников"); return }
-        val labels = choices.map { CookEmployeeLabels.label(it, employees) }.toTypedArray()
-        AlertDialog.Builder(this).setTitle(title).setItems(labels) { _, index ->
-            onPick(choices[index])
-        }.setNegativeButton("Отмена", null).show()
+        val labels = choices.map { CookEmployeeLabels.label(it, employees) }
+        showPhotoChoices(title, labels) { index -> onPick(choices[index]) }
     }
 
     private fun promoteTrainee(role: CookShiftWizard.Role) {
@@ -573,48 +572,90 @@ class CookShiftActivity : AppCompatActivity() {
         val people = (activePeople + employees).associateBy { it.id }
         val directory = people.values.toList()
         fun displayName(employee: CookEmployee) = CookEmployeeLabels.label(employee, directory)
-        content.addView(shiftSection(R.string.cook_shift_roster_members))
+        val authors = intent.getStringArrayExtra("author_ids").orEmpty().mapNotNull(people::get)
+            .filter { it.id in members && !CookEmployeeLabels.ambiguous(it, directory) }
+            .map { it.id }.toSet()
+        var current = pickedPrimaryCook?.takeIf { it in authors }
+            ?: intent.getStringExtra("current_author")?.takeIf { it in members } ?: shift.mainCookId
+        val primaryCook = getString(R.string.cook_shift_primary_author)
+        fun confirmChoice(id: String) {
+            setResult(RESULT_OK, android.content.Intent().putExtra("author_id", id)
+                .putExtra("shift_id", shift.id).putExtra("revision", shift.revision))
+        }
+        pickedPrimaryCook?.takeIf { it in authors }?.let(::confirmChoice)
+        val updateRows = mutableListOf<() -> Unit>()
         val roster = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = dp(14).toFloat()
-                setColor(Color.WHITE)
-                setStroke(dp(1), getColor(R.color.sushi_line))
+                setColor(getColor(R.color.photo_panel))
+                setStroke(dp(1), getColor(R.color.photo_line))
             }
         }
         members.forEachIndexed { index, id ->
             if (index > 0) roster.addView(shiftDivider(section = false))
-            roster.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(56)
                 setPadding(dp(14), dp(10), dp(14), dp(10))
+            }
+            val name = people[id]?.let(::displayName) ?: "Сотрудник"
+            val roleText = TextView(this).apply { textSize = 13f }
+            row.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 addView(TextView(context).apply {
-                    text = people[id]?.let(::displayName) ?: "Сотрудник"
-                    textSize = 16f; setTextColor(ink); sushiFont(R.attr.sushiLabelFont)
+                    text = name
+                    textSize = 16f
+                    setTextColor(ink)
+                    sushiFont(R.attr.sushiLabelFont)
                 })
-                addView(TextView(context).apply {
-                    text = byRole.filter { id in it.second }.joinToString(" · ") { it.first }
-                    textSize = 13f; setTextColor(getColor(R.color.sushi_muted))
-                })
-            })
+                addView(roleText)
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            val dot = if (id in authors) RadioButton(this).apply {
+                buttonTintList = choiceTint()
+                background = null
+                isClickable = false
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                row.addView(this, LinearLayout.LayoutParams(dp(28), dp(40)).apply { marginStart = dp(12) })
+            } else null
+            fun updateRow() {
+                val selected = id == current
+                roleText.text = byRole.mapNotNull { (role, ids) ->
+                    when {
+                        role == "Повар" && selected -> primaryCook
+                        id in ids -> role
+                        else -> null
+                    }
+                }.joinToString(" · ")
+                roleText.setTextColor(getColor(if (selected) R.color.sushi_pink else R.color.photo_muted))
+                dot?.isChecked = selected
+                if (dot != null) {
+                    row.isSelected = selected
+                    row.contentDescription = "$name, ${roleText.text}"
+                }
+            }
+            if (dot != null) {
+                row.isFocusable = true
+                row.setOnClickListener {
+                    val currentBinding = binding
+                    if (busy || id == current) return@setOnClickListener
+                    if (!CookShiftPolicy.usable(shift, currentBinding, currentBinding, Instant.now())) {
+                        showError("Состав больше не действителен. Откройте смену заново.")
+                        return@setOnClickListener
+                    }
+                    pickedPrimaryCook = id
+                    current = id
+                    confirmChoice(id)
+                    updateRows.forEach { it() }
+                }
+            }
+            updateRows += ::updateRow
+            updateRow()
+            roster.addView(row)
         }
-        content.addView(roster)
-        val authors = intent.getStringArrayExtra("author_ids").orEmpty().mapNotNull(people::get)
-            .filter { it.id in members && !CookEmployeeLabels.ambiguous(it, directory) }
-        val current = intent.getStringExtra("current_author") ?: shift.mainCookId
-        if (authors.isNotEmpty()) {
-            content.addView(shiftDivider())
-            content.addView(shiftSection(R.string.cook_shift_primary_author))
-            people[current]?.let { content.addView(label(displayName(it), 16f)) }
-            val alternatives = authors.filterNot { it.id == current }
-            if (alternatives.isNotEmpty()) content.addView(action(getString(R.string.cook_shift_change_author)) {
-                val choices = alternatives.map(::displayName).toTypedArray()
-                AlertDialog.Builder(this).setTitle(R.string.cook_shift_primary_author).setItems(choices) { _, index ->
-                    setResult(RESULT_OK, android.content.Intent().putExtra("author_id", alternatives[index].id)
-                        .putExtra("shift_id", shift.id).putExtra("revision", shift.revision))
-                    finish()
-                }.setNegativeButton(R.string.close, null).show()
-            }.apply { isEnabled = !busy })
-        }
+        content.addView(roster, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
         val roles = listOf(ShiftRoleOption("Повар", CookShiftWizard.Role.COOK, shift.cooks.size < if (pizzaMode) 2 else 4),
             ShiftRoleOption("Оператор", CookShiftWizard.Role.OPERATOR, shift.operators.size < 2),
             ShiftRoleOption("Помощник", CookShiftWizard.Role.ASSISTANT, shift.assistants.size < 2),
@@ -646,8 +687,8 @@ class CookShiftActivity : AppCompatActivity() {
                 fun choose(role: CookShiftWizard.Role) =
                     pick("Сотрудники из базы", employees.filter { it.id !in members && (pizzaMode || eligible(it, role)) },
                         onPick = { person -> addToShift(role, person) })
-                if (available.size == 1) choose(available.first().role) else AlertDialog.Builder(this).setTitle("Роль сотрудника")
-                    .setItems(available.map { it.label }.toTypedArray()) { _, i -> choose(available[i].role) }.show()
+                if (available.size == 1) choose(available.first().role)
+                else showPhotoChoices("Роль сотрудника", available.map { it.label }) { i -> choose(available[i].role) }
             }.apply { isEnabled = !busy })
             content.addView(action(getString(R.string.cook_shift_create_employee)) {
                 addEmployee(shiftRoles = roles) { person, role ->
@@ -657,13 +698,8 @@ class CookShiftActivity : AppCompatActivity() {
         }
     }
 
-    private fun shiftSection(title: Int) = label(getString(title), 16f).apply {
-        sushiFont(R.attr.sushiLabelFont)
-        androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
-    }
-
     private fun shiftDivider(section: Boolean = true) = View(this).apply {
-        setBackgroundColor(getColor(R.color.sushi_line))
+        setBackgroundColor(getColor(R.color.photo_line))
         layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply {
             if (section) topMargin = dp(14) else { marginStart = dp(14); marginEnd = dp(14) }
         }
@@ -671,11 +707,10 @@ class CookShiftActivity : AppCompatActivity() {
 
     private fun pinReturnToCamera() {
         footer.removeAllViews()
-        footer.setBackgroundColor(Color.rgb(244, 239, 233))
+        footer.setBackgroundColor(getColor(R.color.photo_panel))
         footer.setPadding(dp(18), dp(4), dp(18), dp(10))
         footer.addView(action(getString(R.string.cook_shift_return_camera)) { finish() }.apply {
-            backgroundTintList = ColorStateList.valueOf(ink)
-            setTextColor(Color.WHITE)
+            stylePhotoButton(primary = true)
         })
     }
 
@@ -1025,8 +1060,8 @@ class CookShiftActivity : AppCompatActivity() {
                                 loadRoster()
                             }.onFailure { if (it is CancellationException) throw it else showError("Не удалось подтвердить изменение списка. Проверьте соединение.") }
                         }
-                    }.show()
-            }.show()
+                    }.showPhotoSheet()
+            }.showPhotoSheet()
     }
 
     private fun restoreEmployee() {
@@ -1065,8 +1100,8 @@ class CookShiftActivity : AppCompatActivity() {
                                         loadRoster()
                                     }.onFailure { if (it is CancellationException) throw it else showError("Не удалось подтвердить изменение списка") }
                                 }
-                            }.show()
-                    }.show()
+                            }.showPhotoSheet()
+                    }.showPhotoSheet()
             }.onFailure { if (it is CancellationException) throw it else showError("Не удалось загрузить список сотрудников") }
         }
     }
@@ -1079,13 +1114,13 @@ class CookShiftActivity : AppCompatActivity() {
             if (branded) {
                 textSize = 16f
                 setTextColor(ink)
-                setHintTextColor(getColor(R.color.sushi_muted))
+                setHintTextColor(getColor(R.color.photo_muted))
                 inputType = android.text.InputType.TYPE_CLASS_TEXT or
                     android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS or android.text.InputType.TYPE_TEXT_VARIATION_PERSON_NAME
                 background = GradientDrawable().apply {
                     cornerRadius = dp(12).toFloat()
                     setColor(paper)
-                    setStroke(dp(1), getColor(R.color.sushi_muted))
+                    setStroke(dp(1), getColor(R.color.photo_line))
                 }
                 setPadding(dp(14), dp(10), dp(14), dp(10))
                 minHeight = dp(48)
@@ -1105,14 +1140,23 @@ class CookShiftActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(20), dp(8), dp(20), 0)
                 addView(name)
-                addView(RadioGroup(this@CookShiftActivity).apply {
+                if (branded) {
+                    val roleButtons = mutableListOf<Button>()
+                    shiftRoles.forEach { (label, role, hasRoom) ->
+                        val caption = if (hasRoom) label else getString(R.string.cook_shift_role_full, label)
+                        roleButtons += addPhotoChoice(caption, selected = role == shiftRole, enabled = hasRoom) { button ->
+                            shiftRole = role
+                            roleButtons.forEach { it.isSelected = it === button }
+                        }
+                    }
+                } else addView(RadioGroup(this@CookShiftActivity).apply {
                     shiftRoles.forEach { (label, role, hasRoom) ->
                         addView(RadioButton(this@CookShiftActivity).apply {
                             id = View.generateViewId()
                             text = if (hasRoom) label else getString(R.string.cook_shift_role_full, label)
                             textSize = 16f
                             minHeight = dp(48)
-                            setTextColor(if (hasRoom) ink else getColor(R.color.sushi_muted))
+                            setTextColor(if (hasRoom) ink else getColor(R.color.photo_muted))
                             buttonTintList = choiceTint()
                             isEnabled = hasRoom
                             isChecked = role == shiftRole
@@ -1133,17 +1177,6 @@ class CookShiftActivity : AppCompatActivity() {
         val dialog = builder.setNegativeButton("Отмена", null).setPositiveButton("Добавить", null).create()
         dialog.setOnShowListener {
             val submit = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-            if (branded) {
-                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).apply {
-                    setTextColor(ink)
-                    sushiFont(R.attr.sushiLabelFont)
-                }
-                submit.apply {
-                    setTextColor(ink)
-                    sushiFont(R.attr.sushiLabelFont)
-                    backgroundTintList = ColorStateList.valueOf(getColor(R.color.sushi_pink))
-                }
-            }
             submit.setOnClickListener {
                 val text = name.text.toString().trim().replace(Regex("\\s+"), " ")
                 val assignedRole = shiftRole
@@ -1169,7 +1202,11 @@ class CookShiftActivity : AppCompatActivity() {
                     name.error = "Такое имя уже есть. Для другого сотрудника укажите отличающееся имя."
                     return@setOnClickListener
                 }
-                dialog.dismiss()
+                if (branded) {
+                    submit.isEnabled = false
+                    dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
+                    dialog.setCancelable(false)
+                } else dialog.dismiss()
                 busy = true
                 scope.launch {
                     val result = runCatching { withContext(Dispatchers.IO) {
@@ -1199,14 +1236,24 @@ class CookShiftActivity : AppCompatActivity() {
                     } }
                     busy = false
                     result.onSuccess { added ->
+                        if (branded) dialog.dismiss()
                         employees = employees.filterNot { it.id == added.id } + added
                         if (onAdded != null) onAdded(added, assignedRole) else render()
                     }
-                        .onFailure { if (it is CancellationException) throw it else showError(it.message ?: "Не удалось добавить сотрудника") }
+                        .onFailure {
+                            if (it is CancellationException) throw it
+                            val message = it.message ?: "Не удалось добавить сотрудника"
+                            if (branded) {
+                                submit.isEnabled = true
+                                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true
+                                dialog.setCancelable(true)
+                                name.error = message
+                            } else showError(message)
+                        }
                 }
             }
         }
-        dialog.show()
+        dialog.showPhotoSheet()
     }
 
     private fun saveShift() {
@@ -1231,7 +1278,8 @@ class CookShiftActivity : AppCompatActivity() {
         val selectedOperators = operators.sorted()
         val selectedAssistants = assistants.sorted()
         val selectedTrainees = trainees.sorted()
-        val carryAuthor = intent.getStringExtra("current_author")?.takeIf { activeEdit != null && it in cooks + operators + trainees }
+        val carryAuthor = (pickedPrimaryCook ?: intent.getStringExtra("current_author"))
+            ?.takeIf { activeEdit != null && it in cooks + operators + trainees }
         scope.launch {
             val result = runCatching { withContext(Dispatchers.IO) {
                 val zone = ZoneId.of(timezone)
@@ -1290,6 +1338,6 @@ class CookShiftActivity : AppCompatActivity() {
     }
 
     private fun showError(message: String) {
-        if (!isFinishing && !isDestroyed) AlertDialog.Builder(this).setMessage(message).setPositiveButton("Понятно", null).show()
+        if (!isFinishing && !isDestroyed) AlertDialog.Builder(this).setMessage(message).setPositiveButton("Понятно", null).showPhotoSheet()
     }
 }

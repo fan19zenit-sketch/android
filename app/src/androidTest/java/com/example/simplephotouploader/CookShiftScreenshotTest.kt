@@ -13,7 +13,6 @@ import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
-import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -135,19 +134,18 @@ class CookShiftScreenshotTest {
                 onView(withText("Сидорова Мария")).perform(click()); save("12a-operator")
                 onView(withText("Петрова Анна")).perform(click()); save("12-one-shot")
                 onView(withText("Ещё")).perform(click()); save("13-other-authors")
-                onView(withContentDescription(R.string.cook_author_shared_help))
-                    .inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(scrollTo(), click())
-                save("13a-shared-help")
-                onView(withText("Совместно")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(scrollTo(), click()); save("13b-shared")
-                onView(withText("Совместно")).perform(click())
+                onView(withText("Совместно")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
+                    .check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
                 onView(withText("Автор неизвестен")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist()); androidx.test.espresso.Espresso.pressBack()
-                onView(withText("Смена")).perform(click()); waitFor("Сейчас на смене"); save("11c-change")
+                onView(withText("Смена")).perform(click()); waitFor("Основной повар"); save("11c-change")
                 onView(withText(R.string.cook_shift_create_employee)).perform(scrollTo(), click())
                 androidx.test.espresso.Espresso.closeSoftKeyboard()
+                onView(withText("Стажёр")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(scrollTo(), click())
                 save("11e-new-employee")
                 onView(withText("Отмена")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click())
-                onView(withText(R.string.cook_shift_change_author)).perform(scrollTo(), click())
-                onView(withText("Петрова Анна")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click()); waitFor("Петрова Анна"); save("11d-persistent")
+                onView(withText("Петрова Анна")).perform(scrollTo(), click())
+                save("11f-pick-main-cook")
+                onView(withText(R.string.cook_shift_return_camera)).perform(click()); waitFor("Петрова Анна"); save("11d-persistent")
             }
             if (cookPanelsOnly) return
             if (args.getString("check_landscape") != "true") {
@@ -168,7 +166,7 @@ class CookShiftScreenshotTest {
                 onView(androidx.test.espresso.matcher.ViewMatchers.withId(R.id.rowActions)).perform(click()); save("15b-retry"); androidx.test.espresso.Espresso.pressBack()
                 onView(withText("В пути")).perform(click()); waitFor("В очереди"); save("16-queue")
                 onView(androidx.test.espresso.matcher.ViewMatchers.withId(R.id.historyMenu)).perform(click()); save("16b-menu")
-                val support = onView(androidx.test.espresso.matcher.ViewMatchers.withId(R.id.btnSupport))
+                val support = onView(withText(R.string.diagnostics_share)).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog())
                 if (context.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
                     support.perform(scrollTo())
                 support.perform(click()); SystemClock.sleep(900); save("19-diagnostics")

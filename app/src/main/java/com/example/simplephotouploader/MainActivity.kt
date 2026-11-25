@@ -37,7 +37,6 @@ class MainActivity : AppCompatActivity() {
         private var selectedShift: CachedCookShift? = null
         private var selectedShiftScope: String? = null
         private var operatorPhotoAuthorEnabled = false
-        private val unassignedSelection = CookUnassignedSelection()
     }
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -246,7 +245,7 @@ class MainActivity : AppCompatActivity() {
         val camera = imageCapture ?: return
         if (filesDir.usableSpace < 15L * 1024 * 1024) {
             AlertDialog.Builder(this).setMessage(R.string.camera_low_storage)
-                .setPositiveButton(R.string.close, null).show()
+                .setPositiveButton(R.string.close, null).showPhotoSheet()
             return
         }
         val captureId = captures.begin() ?: return
@@ -259,25 +258,13 @@ class MainActivity : AppCompatActivity() {
         val capturedAt = instant.toString()
         var reservation: CookCaptureSelection.Reservation? = null
         var photoContext: String? = null
-        var unassignedAtCapture: CookUnassignedSelection.Reservation? = null
         if (cookMode) {
             val binding = scopedBinding()
             val snapshot = usableShift(binding, instant)
             if (snapshot == null) {
-                if (isPizzaPhone()) {
-                    captures.finish(captureId)
-                    showShiftRequired()
-                    return
-                }
-                val choice = unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), instant)
-                try {
-                    photoContext = CookPhotoContextFactory.createUnassigned(requireNotNull(binding), requireNotNull(choice).choice, instant)
-                    unassignedAtCapture = choice
-                } catch (_: Exception) {
-                    captures.finish(captureId)
-                    showShiftRequired()
-                    return
-                }
+                captures.finish(captureId)
+                showShiftRequired()
+                return
             } else {
                 reservation = cookSelection.reserve()
                 if (reservation == null) { captures.finish(captureId); return }
@@ -306,7 +293,6 @@ class MainActivity : AppCompatActivity() {
         }
         val reserved = reservation
         val frozenContext = photoContext
-        val frozenUnassigned = unassignedAtCapture
         val capturePrefs = getSharedPreferences(AppPrefs.PREFS, MODE_PRIVATE)
         val frozenDevice = capturePrefs.getString(AppPrefs.KEY_DEVICE_UUID, null)?.takeIf { it.isNotBlank() }
         val frozenBackend = capturePrefs.getString(AppPrefs.KEY_BACKEND_URL, AppPrefs.DEFAULT_BACKEND_URL)
@@ -329,7 +315,7 @@ class MainActivity : AppCompatActivity() {
                         captureButton.isEnabled = false
                         if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) startCamera()
                         AlertDialog.Builder(this@MainActivity).setMessage(R.string.camera_capture_timeout)
-                            .setPositiveButton(R.string.close, null).show()
+                            .setPositiveButton(R.string.close, null).showPhotoSheet()
                     }
                 }
             }
@@ -388,9 +374,6 @@ class MainActivity : AppCompatActivity() {
                                     }
                                     if (!timedOut.get()) {
                                         reserved?.let { cookSelection.finish(it, true) }
-                                        withContext(Dispatchers.Main) {
-                                            frozenUnassigned?.let { unassignedSelection.finish(it, true) }
-                                        }
                                         PhotoUploadWorker.enqueue(applicationContext)
                                         UploadCoordinator.kick(applicationContext)
                                     }
@@ -428,14 +411,14 @@ class MainActivity : AppCompatActivity() {
         if (!isFinishing && !isDestroyed) AlertDialog.Builder(this)
             .setMessage("Подтвердите состав смены перед съёмкой")
             .setPositiveButton("Открыть смену") { _, _ -> openShift() }
-            .setNegativeButton(R.string.close, null).show()
+            .setNegativeButton(R.string.close, null).showPhotoSheet()
     }
 
     private fun showAmbiguousCook() {
         if (!isFinishing && !isDestroyed) AlertDialog.Builder(this)
             .setMessage("У сотрудников одинаковые имена. Попросите управляющего уточнить их в справочнике.")
             .setPositiveButton("Открыть смену") { _, _ -> openShift() }
-            .setNegativeButton(R.string.close, null).show()
+            .setNegativeButton(R.string.close, null).showPhotoSheet()
     }
 
     private fun authorCandidates(snapshot: CachedCookShift) = snapshot.shift.photoAuthors(operatorPhotoAuthorEnabled, isPizzaPhone())
@@ -459,8 +442,7 @@ class MainActivity : AppCompatActivity() {
         if (needsRosterReview()) return false
         val now = Instant.now()
         val binding = scopedBinding()
-        return usableShift(binding, now) != null || (!isPizzaPhone() &&
-            unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), now) != null)
+        return usableShift(binding, now) != null
     }
 
     private fun isPizzaPhone(): Boolean = BuildConfig.FLAVOR == "clean" &&
@@ -532,7 +514,6 @@ class MainActivity : AppCompatActivity() {
             selectedShift = recovered
             cookSelection.setRoster(allowed, recovered.shift.mainCookId)
             persistent?.let { cookSelection.selectPersistent(it) }
-            unassignedSelection.clear()
             refreshCookPanel()
         } catch (error: CancellationException) { throw error }
         catch (_: Exception) { /* Offline capture keeps its last locally confirmed selection. */ }
@@ -644,7 +625,6 @@ class MainActivity : AppCompatActivity() {
                 selectedShift = candidate
                 selectedShiftScope = expectedScope
                 operatorPhotoAuthorEnabled = operatorAuthor
-                unassignedSelection.clear()
                 if (candidate != null) {
                     val allowed = candidate.shift.photoAuthors(operatorAuthor, isPizzaPhone()).toSet()
                     cookSelection.setRoster(allowed, candidate.shift.mainCookId)
@@ -747,10 +727,8 @@ class MainActivity : AppCompatActivity() {
         val binding = scopedBinding()
         val snapshot = usableShift(binding, Instant.now())
         val selected = cookSelection.current()
-        val source = if (snapshot != null) cookSelection.currentSource() else
-            unassignedSelection.current(binding, CookLocalSession.identity(applicationContext), Instant.now())?.choice
         val review = needsRosterReview()
-        val key = "$snapshot|$selected|$source|$binding|$operatorPhotoAuthorEnabled|${isPizzaPhone()}|$review"
+        val key = "$snapshot|$selected|$binding|$operatorPhotoAuthorEnabled|${isPizzaPhone()}|$review"
         if (key == cookPanelKey) { maybePromptForShift(); return }
         cookPanelKey = key
         if (review) {
@@ -798,18 +776,17 @@ class MainActivity : AppCompatActivity() {
                     }
             })
         }
-        if (binding?.timezone != null) {
+        if (authorIds.isNotEmpty() || (binding?.timezone != null && isPizzaPhone())) {
             choices.addView(TextView(this).apply {
                 val density = resources.displayMetrics.density
-                text = if (source == "shared") getString(R.string.cook_author_shared) else "Ещё"
+                text = "Ещё"
                 textSize = 13f; sushiFont(R.attr.sushiLabelFont)
                 setTextColor(android.graphics.Color.WHITE)
                 gravity = android.view.Gravity.CENTER
                 minimumWidth = (48 * density).toInt(); minimumHeight = (48 * density).toInt()
                 val pad = (8 * density).toInt()
                 setPadding(pad, 0, pad, 0)
-                background = authorSurface(source == "shared")
-                isSelected = source == "shared"
+                background = authorSurface(false)
                 setOnClickListener {
                     openAuthorSheet()
                 }
@@ -831,23 +808,18 @@ class MainActivity : AppCompatActivity() {
                 id to CookEmployeeLabels.label(current.employees.first { it.id == id }, current.employees)
             }
         }.orEmpty()
-        showCookAuthorDialog(this, people, cookSelection.current(),
-            sharedSelected = if (snapshot != null) cookSelection.currentSource() == "shared"
-                else unassignedSelection.current(binding, scope, Instant.now())?.choice == "shared",
-            onPick = { id ->
-                if (snapshot != null && isCurrent() && id in authorCandidates(snapshot)) {
-                    if (pizza) selectCurrentAuthor(snapshot, id)
-                    else { cookSelection.selectOneShot(id); refreshCookPanel() }
-                }
-            },
-            onShared = if (pizza) null else ({
-                if (isCurrent()) {
-                    if (snapshot != null) cookSelection.selectUnassigned("shared")
-                    else unassignedSelection.select("shared", binding, scope, Instant.now())
-                    refreshCookPanel()
-                }
-            }),
-            onPizzaShift = if (pizza) ({ openShift() }) else null)
+        val labels = people.map { it.second } + if (pizza) listOf(getString(R.string.cook_pizza_shift)) else emptyList()
+        if (labels.isEmpty()) return
+        showPhotoChoices(getString(R.string.cook_author_title), labels,
+            people.indexOfFirst { it.first == cookSelection.current() }) { index ->
+            val id = people.getOrNull(index)?.first
+            if (id == null) {
+                if (pizza) openShift()
+            } else if (snapshot != null && isCurrent() && id in authorCandidates(snapshot)) {
+                if (pizza) selectCurrentAuthor(snapshot, id)
+                else { cookSelection.selectOneShot(id); refreshCookPanel() }
+            }
+        }
     }
 
     private fun showPermissionError() {
@@ -857,6 +829,6 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                     data = android.net.Uri.fromParts("package", packageName, null)
                 })
-            }.setNegativeButton(R.string.close) { _, _ -> finish() }.show()
+            }.setNegativeButton(R.string.close) { _, _ -> finish() }.showPhotoSheet()
     }
 }

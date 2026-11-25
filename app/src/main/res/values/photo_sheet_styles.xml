@@ -1,0 +1,6 @@
+<resources>
+    <style name="PhotoSheetAnimation">
+        <item name="android:windowEnterAnimation">@anim/photo_sheet_enter</item>
+        <item name="android:windowExitAnimation">@anim/photo_sheet_exit</item>
+    </style>
+</resources>
