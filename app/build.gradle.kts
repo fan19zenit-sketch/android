@@ -30,7 +30,7 @@ android {
             applicationId = "com.example.photovchistotu"
             versionCode = 20261128
             versionName = "3.3.15"
-            manifestPlaceholders["appLabel"] = "Фото в чистоту 2"
+            manifestPlaceholders["appLabel"] = "Фото в чистоту"
         }
     }
 
